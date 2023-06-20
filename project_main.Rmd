@@ -1,0 +1,210 @@
+---
+title: "Untitled"
+author: "Daniel Liu"
+date: "2023-06-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(stopwords)
+library(tidyverse)
+library(tidytext)
+library(textdata)
+library(lubridate)
+```
+
+Reading in all data:
+```{r}
+# Gives me information about draft history.
+draft_history_df <- read_csv(here::here("nba_data", "draft_history.csv"))
+
+# Gives me information about the game with its attendance and game time.
+game_info_df <- read_csv(here::here("nba_data", "game_info.csv"))
+
+# Important: Tells me information about all the games played.
+game_df <- read_csv(here::here("nba_data", "game.csv"))
+glimpse(game_df)
+
+play_by_play_df <- read_csv(here::here("nba_data", "play_by_play.csv"))
+glimpse(play_by_play_df)
+
+# VERY USEFUL:
+# Especially person_id, school, country, height (compare knicks height vs rest of league height), team_abbrev, dleague (were they from d_league),  draft_round.
+common_player_info_df <- read_csv(here::here("nba_data", "common_player_info.csv"))
+glimpse(common_player_info_df)
+
+# Might be useful for matching team id with name for visualizations. Only 30 rows so very good for that.
+team_df <- read_csv(here::here("nba_data", "team.csv"))
+glimpse(team_df)
+```
+
+
+
+# Pre-processing data:
+
+Step 1: To give every dataframe a year, month and date_time to be able to filter on it:
+
+NOTE: IMPORTANT TO FILTER ONLY FOR DATA from 2022-10-29 onwards!!! Start of the 2013/2014 NBA season.
+
+This means to show that the Knicks are poor, I'm not comparing against old old data, but rather,
+comparing **within** the years (i.e. comparing seasons where the knicks did good vs bad) AND
+comparing **between** other teams in the same period, especially those that did good.
+
+
+```{r}
+# Adding year and month to game:
+game_df$game_date <- as.Date(game_df$game_date)   # Make it a date object, don't care about time.
+game_df <- game_df %>% 
+  mutate(year = year(game_date),
+         month = month(game_date)) %>% 
+  filter(game_date > "2013-10-29")
+
+glimpse(tmp_df)
+
+tmp_df %>% 
+  filter(team_abbreviation_away == "NYK" | team_abbreviation_home == "NYK")
+
+# Adding year and month to game_info:
+game_info_df$game_date <- as.Date(game_info_df$game_date)
+game_info_df <- game_info_df %>% 
+  na.omit() %>% 
+  mutate(year = year(game_date),
+         month = month(game_date)) %>% 
+    filter(game_date > "2013-10-29")
+
+length(unique(game_info_df$game_id))    # Checking every game is unique. Yes since no. rows = no. unique game_id.
+
+# Adding the date to play_by_play through left_join:
+game_with_year <- game_df %>% 
+  select(game_id, game_date)
+play_by_play_df <- play_by_play_df %>% 
+  left_join(game_with_year, on = "game_id") %>% 
+  filter(game_date > "2013-10-29")
+
+```
+
+For the analysis, I require information on each of the 30 teams wins and losses, both home and away and in total. 
+As such data was not provided, create it myself.
+```{r}
+glimpse(game_df)
+# Home team wins:
+home_team_wins <- game_df %>% 
+  rename(team_id = team_id_home, team_abbreviation = team_abbreviation_home) %>% 
+  group_by(team_id, team_abbreviation) %>% 
+  summarise(home_wins = sum(wl_home == "W", na.rm = TRUE),
+            home_losses = sum(wl_home == "L", na.rm = TRUE),
+            home_win_proportion = home_wins / (home_losses + home_wins))
+
+home_team_wins
+
+# Away team wins:
+away_team_wins <- game_df %>% 
+  rename(team_id = team_id_away, team_abbreviation = team_abbreviation_away) %>% 
+  group_by(team_id, team_abbreviation) %>% 
+  summarise(away_wins = sum(wl_away == "W", na.rm = TRUE),
+            away_losses = sum(wl_away == "L", na.rm = TRUE),
+            away_win_proportion = away_wins / (away_losses + away_wins))
+
+away_team_wins
+
+# Combining two df's for each team and add variables (total_wins) and (total_losses)
+team_wins_df <- home_team_wins %>% 
+  inner_join(away_team_wins, by = c("team_id", "team_abbreviation")) %>% 
+  mutate(total_wins = home_wins + away_wins,
+         total_losses = home_losses + away_losses,
+         total_win_percentage = total_wins / (total_wins + total_losses) * 100)
+
+team_wins_df
+```
+
+
+It's not secret the Knicks have performed poorly over the past decade. As seen below, the Knicks are the 3rd worst team with a below 50 win percentage
+between 2013 and 2022.
+```{r}
+team_wins_df %>% 
+  mutate(ToHighlight = ifelse(team_abbreviation == "NYK", "yes", "no")) %>% 
+  ggplot(aes(x = reorder(team_abbreviation, total_win_percentage),
+             y = total_win_percentage,
+             fill = ToHighlight)) +
+  geom_col() + 
+  labs(title = "Win percentage of each NBA team (2013-2022)",
+       x = "Team",
+       y = "Win Percentage") + 
+  coord_flip() + 
+  scale_fill_manual(values = c("yes" = "#E94B3CFF", "no" = "#2D2926FF")) + 
+  theme_classic() + 
+  theme(legend.position = "none")
+```
+
+FURTHERMORE:
+
+# Analysis 1: Sentiment Analysis
+
+## Introduction: Fun analysis illustrating why the Knicks were poor through sentiment analysis:
+
+This is the New York Knicks announcer sentiment. As seen 0.802 of words which
+contain sentiment are negative, words like "miss", "bad" which imply Knicks games were
+perhaps hard to watch with their poor performances throughout this period.
+
+* Note: Might be a good place to make a user-defined function.
+```{r}
+play_by_play_df %>% 
+  filter(player1_team_abbreviation == "NYK" | player2_team_abbreviation == "NYK" | player3_team_abbreviation == "NYK") %>% 
+  select(game_id, homedescription) %>% 
+  na.omit() %>% 
+  unnest_tokens(
+    output = word,
+    input = homedescription,
+    token = "words"
+  ) %>% 
+  anti_join(get_stopwords()) %>% 
+  inner_join(get_sentiments("bing")) %>% 
+  count(sentiment) %>% 
+  mutate(proportion = n / sum(n))
+```
+
+Compare this to the league average (i.e. across all 30 teams):
+Only a 0.750 negative sentiment. Knicks clearly aren't inspiring with their basketball.
+```{r}
+play_by_play_df %>% 
+  select(game_id, homedescription) %>% 
+  na.omit() %>% 
+  unnest_tokens(
+    output = word,
+    input = homedescription,
+    token = "words"
+  ) %>% 
+  anti_join(get_stopwords()) %>% 
+  inner_join(get_sentiments("bing")) %>% 
+  count(sentiment) %>% 
+  mutate(proportion = n / sum(n))
+```
+
+Prove that this is definitely dependent on skill of a team. Compare say the 3 teams with the highest win proportion since 2013: Warriors, Clippers and Raptors:
+```{r}
+team_wins_df %>% 
+  arrange(desc(total_win_proportion))
+```
+
+
+But we already knew this, but the question is *WHY*?
+What can be done in the future to bring the Knicks back into their glory days and win the support of the fans again?
+
+
+# Analysis 2: Comparison of the Knicks 3P% against the rest of the leagues:
+
+```{r}
+glimpse(game)
+```
+
+
+
+
+# Analysis 3: Checking salary of the Knicks players:
+
+
+
