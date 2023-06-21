@@ -41,6 +41,17 @@ glimpse(common_player_info_df)
 # Might be useful for matching team id with name for visualizations. Only 30 rows so very good for that.
 team_df <- read_csv(here::here("nba_data", "team.csv"))
 glimpse(team_df)
+
+# Nba player salaries: Pre-pro
+salaries <- read_csv(here::here("nba_data", "nba_salaries.csv"))
+salaries <- salaries %>% 
+  select(name, team, salary, season) %>% 
+  filter(season >= 2013) %>% 
+  filter(!(team %in% c("Fenerbahce Ulker Fenerbahce Ulker", "Maccabi Haifa Maccabi Haifa", "null Unknown",
+                       "Madrid Real Madrid", "Charlotte Bobcats", "New Orleans Hornets")))
+
+# Individual player data:
+player_info <- read_csv(here::here("nba_data", "all_seasons.csv"))
 ```
 
 
@@ -55,32 +66,22 @@ This means to show that the Knicks are poor, I'm not comparing against old old d
 comparing **within** the years (i.e. comparing seasons where the knicks did good vs bad) AND
 comparing **between** other teams in the same period, especially those that did good.
 
+VERY IMPORTANT: COMPARING **WITHIN** THE YEARS, LOOKING AT WHY HAVE THE KNICKS STARTED TO IMPROVE SIGNIFICANTLY SINCE 2020?
+
 
 ```{r}
-# Adding year and month to game:
+# Adding year to game:
 game_df$game_date <- as.Date(game_df$game_date)   # Make it a date object, don't care about time.
-game_df$season_id <- as.factor(game_df$season_id)
+game_df$season_id <- as.character(game_df$season_id)
 game_df <- game_df %>%
   filter(game_date > "2013-10-29") %>% 
-  mutate(season_id = fct_recode(season_id,
-                                "2013" = "22013",
-                                "2014" = "22014",
-                                "2015" = "22015",
-                                "2016" = "22016",
-                                "2017" = "22017",
-                                "2018" = "22018",
-                                "2019" = "22019",
-                                "2020" = "22020",
-                                "2021" = "22021",
-                                "2022" = "22022"
-                                ))
+  mutate(year = substring(season_id, 2))
 
-# Adding year and month to game_info:
+# Adding year to game_info:
 game_info_df$game_date <- as.Date(game_info_df$game_date)
 game_info_df <- game_info_df %>% 
   na.omit() %>% 
-  mutate(year = year(game_date),
-         month = month(game_date)) %>% 
+  mutate(year = year(game_date)) %>% 
     filter(game_date > "2013-10-29")
 
 nrow(game_info_df) == length(unique(game_info_df$game_id))    # Checking every game is unique. Yes since no. rows = no. unique game_id.
@@ -195,7 +196,12 @@ But we already knew this, but the question is *WHY*?
 What can be done in the future to bring the Knicks back into their glory days and win the support of the fans again?
 
 
+
 # Analysis 2: Comparison of the Knicks 3P% against the rest of the leagues:
+
+## It's no secret that there has been an explosion of 3 Pointers in the past few decades, with the likes of Steph 
+## Curry and revoluntising the game from beyond the arc. In this section, I explore the performance and impact
+## that the three point shot has had on the New York Knicks since 2013.
 
 Firstly: Preparatory step. For each of the 30 teams, have their home_game_stats, away_game_stats and all_game_stats in a dataframe.
 
@@ -251,9 +257,8 @@ NOTE: Knicks abbreviation is "NYK"
 ```{r}
 # Focus is on 3 points attempted + made:
 knicks_threes <- knicks_games %>% 
-  select(season_id, team_abbreviation_home, wl_home, fg3a_home, fg3m_home, team_abbreviation_away, wl_away, fg3a_away, fg3m_away, wl_home, wl_away)
+  select(year, team_abbreviation_home, wl_home, fg3a_home, fg3m_home, team_abbreviation_away, wl_away, fg3a_away, fg3m_away, wl_home, wl_away)
 
-glimpse(knicks_games)
 knicks_threes
 
 # Obtain a column containing the number of 3 pointers made + attempted per game for every Knicks game between 2013-2022:
@@ -282,20 +287,16 @@ knicks_threes <- knicks_threes %>%
 # Calculating for each year, the knicks 3P% by summing up 3's attempted / 3's made that year:
 # Note: Missing 2017 Data. MAKE MENTION IN MY REPORT. DATA NOT SO GOOD?
 knicks_threes <- knicks_threes %>% 
-  group_by(season_id) %>% 
+  group_by(year) %>% 
   summarise(knicks_3p_percent = (sum(knicks_3m) / sum(knicks_3a)) * 100,
-            n = n(),
-            knicks_win_percent = (sum(knicks_win) / n) * 100) %>% 
-  select(-n)
-
-knicks_threes
+            knicks_3p_attemped = sum(knicks_3a))
 ```
 
 Compare the Knicks total 3 point % over 2013-2022 compared to the rest of the league.
 ```{r}
 # Performing same steps as above but now on all teams to get a league average:
 all_teams_threes <- game_df %>% 
-  select(season_id, team_abbreviation_home, wl_home, fg3a_home, fg3m_home, team_abbreviation_away, wl_away, fg3a_away, fg3m_away)
+  select(year, team_abbreviation_home, wl_home, fg3a_home, fg3m_home, team_abbreviation_away, wl_away, fg3a_away, fg3m_away)
 
 all_teams_threes <- all_teams_threes %>% 
   mutate(total_game_fg3a = fg3a_home + fg3a_away,
@@ -304,51 +305,122 @@ all_teams_threes <- all_teams_threes %>%
 all_teams_threes
 
 all_teams_threes <- all_teams_threes %>% 
-  group_by(season_id) %>% 
-  summarise(all_teams_3p_percent = (sum(total_game_fg3m) / sum(total_game_fg3a)) * 100)
+  group_by(year) %>% 
+  summarise(all_teams_3p_percent = (sum(total_game_fg3m) / sum(total_game_fg3a)) * 100,
+            avg_teams_3p_attempted = sum(total_game_fg3a) / 30)
 
 all_teams_threes
 ```
 
 Creating a visualization of 3P% by year of league average vs knicks:
 
-# Still to do here:
-  - Add labels.
-  - Add Knicks season wins as points here.
-
 Plot: Knicks 3P% against league average: For most seaasons, apart from 3 outliers, much lower.
+```{r}
+knicks_threes %>%
+  left_join(all_teams_threes) %>% 
+  select(-knicks_3p_attemped, -avg_teams_3p_attempted) %>% 
+  reshape2::melt(id.var = "year", variable.name = "Teams") %>% 
+  ggplot(aes(x = as.factor(year),y = value, col = Teams, group = Teams)) + 
+  geom_line() +
+  geom_point() +
+  theme_classic() + 
+  labs(title = "Knicks 3P% Against League Average",
+       x = "Year",
+       y = "3 Point Percentage") + 
+  ylim(33, 40)
+```
+
 ```{r}
 knicks_threes %>% 
   left_join(all_teams_threes) %>% 
-  ggplot(aes(x = as.factor(season_id), group = 1)) + 
-  geom_line(aes(y = all_teams_3p_percent), color = "#2D2926FF", size = 1) + 
-  geom_line(aes(y = knicks_3p_percent), color = "#E94B3CFF", size = 1) + 
+  select(-knicks_3p_percent, -all_teams_3p_percent) %>% 
+  reshape2::melt(id.var = "year", variable.name = "Teams") %>% 
+  ggplot(aes(x = as.factor(year),y = value, col = Teams, group = Teams)) + 
+  geom_line() +
+  geom_point() +
   theme_classic() + 
-  labs(title = "Knicks 3P% against league average",
+  labs(title = "Knicks 3P Attempted Against League Average",
        x = "Year",
-       y = "3 Point Percentage")
-```
-
-Plot of Knicks win by season against 3P%:
-```{r}
-knicks_threes %>% 
-  ggplot(aes(x = as.factor(season_id), group = 1)) + 
-  geom_line(aes(y = knicks_3p_percent), color = "#E94B3CFF", size = 1) + 
-  geom_line(aes(y = knicks_win_percent), color = "#2D2926FF", size = 1) + 
-  theme_classic() + 
-  labs(title = "Knicks 3P% against Win%",
-       x = "Year",
-       y = "3 Point / Win Percentage")
+       y = "3 Pointers Attempted")
 ```
 
 
-**CONCLUSION**: As expected, looking solely at 3P%, despite the craze doesn't determine wins. There's more advanced models out there
-that help determine a teams wins but despite the explosion in 3's, you can still outperform yourself despite not shooting 3's well 
-(i.e. plot2) but seen in plot1, being better at 3's (league average is higher than knicks) certainly might help in improving wins
-(as knicks are 27th ranked team and shoot poorly from 3).
+**CONCLUSION**: As seen in plot2, there has been a steady trend upwards in the number of 3's shot by NBA teams. 
+However, the New York Knicks have been behind the ball in terms of 3 Pointers attempted compared to the league average.
+Especially prevalant in 2018 where the Knicks 3P attempted plumetted way below league average. In this season,
+the Knicks finished the season with an atrocious 17 wins, finishing last in the NBA that season. Perhaps the sudden increase in wins
+could be explained by the significantly increased volume of threes shot under new head coach Tom Thibodeau, who joined the Knicks in 2020,
+and led the Knicks to 2 playoffs births out of his 3 seasons in charge, even advancing to the conference semi-finals in the 2022 season.
+
+As seen in plot1, the Knicks have been shooting poorly in terms of 3P% compared to the rest of the league, apart from the outliers in 2020 and
+2013. This could be indicative of the Knicks poor performance but given the Knicks sudden rise to success from 2020 onwards, and the subsequent
+decrease in 3P% by the Knicks, and in plot2, the significant rise in 3PA, it can be said that the Knicks are shooting more 3's, at a worse rate,
+but are better off doing so.
+
+I recognise that 3 Pointers are only one part of the game but with how integral it is to the modern NBA, it seems as if shooting more threes
+one recipe that might contribute to success.
 
 
 # Analysis 3: Checking salary of the Knicks players:
+```{r}
+league_salaries <- salaries %>% 
+  group_by(season) %>% 
+  summarise(league_salary = (sum(salary)/30) / 1000000)
 
+knicks_salaries <- salaries %>% 
+  filter(team == "New York Knicks") %>% 
+  group_by(season) %>% 
+  summarise(knicks_salary = sum(salary)/ 1000000)
 
+league_salaries %>% 
+  left_join(knicks_salaries) %>% 
+  reshape2::melt(id.var = "season", variable.name = "Team") %>% 
+  ggplot(aes(x = as.factor(season), y = value, col = Team, group = Team)) + 
+  geom_line() +
+  geom_point() +
+  theme_classic() + 
+  labs(title = "Knicks Total Salary Against League Average Total Salary",
+       x = "Year",
+       y = "Salary (in millions of dollars)")
+```
 
+**CONCLUSION**: Clearly the Knicks keep with the league trend in spending. 
+However, ever since the 2017 CBA (Collective Bargaining Agreement), it seems the league salary has overtaken the Knicks salary.
+Perhaps this is due to the 2017 CBA introducing higher max salaries. As the Knicks haven't had a player under a max contract
+since Carmelo Anthony, who left in 2017, this could explain the Knicks trending under league average salary.
+However, it can be seen that salary and the amount spent on players likely isn't a significant factor for the Knicks in terms of winning.
+The Knicks have only performed well from 2020 onwards in this period, the only times the Knicks salaries were below league average.
+This is likely because of the better management of players and player contracts.
+
+Therefore, it can be said that better management of player contracts, allowing for flexibility in trades and free agency is key to improving the Knicks winning.
+
+## What colleges are the best at finding good players and are the Knicks drafting from these colleges?
+
+## Are Non-College (i.e. Other Team/International players) better than College players in terms of avg_net_rating?
+* Compare the two and see if College or Non-College players make the bigger impact?
+* Then see what demographic the knicks are primarily drafting (pie-chart). College or non-college. 
+* If Non-college are making the bigger impact and Knicks are drafting more college than league avg, perhaps this is a recommendation.
+
+## How good are the Knicks at finding second round gems (i.e. players with net ratings > 0: Make a positive impact on the floor)
+
+Choice of statistic: Net Rating: Measures a team's point differnential per 100 persons (i.e. how many points does a player add/remove per 100 possessions)?
+Basically, how much better off is a team with the player on the court compared to without?
+
+```{r}
+player_rating <- player_info %>% 
+  select(player_name, season, net_rating) %>% 
+  group_by(player_name) %>% 
+  summarise(avg_net_rating = mean(net_rating))
+
+draft_picks <- draft_history_df %>% 
+  filter(season > 2012) %>% 
+  select(person_id, player_name, season, round_number, round_pick, overall_pick, team_abbreviation, organization, organization_type) %>% 
+  left_join(player_rating, by = "player_name")
+draft_picks %>% 
+  filter(team_abbreviation == "NYK")
+  
+  
+
+```
+
+## Home win percentage vs Away win percentage?
