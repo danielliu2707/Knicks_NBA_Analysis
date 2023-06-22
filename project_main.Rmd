@@ -485,7 +485,7 @@ means worse off with that player on the court.
 player_rating <- player_info %>% 
   select(player_name, season, net_rating) %>% 
   group_by(player_name) %>% 
-  summarise(avg_net_rating = mean(net_rating))
+  summarise(career_net_rating = mean(net_rating))
 
 draft_picks <- draft_history_df %>% 
   filter(season > 2012) %>% 
@@ -498,6 +498,179 @@ player_rating
 draft_picks
 ```
 
+4th Worst using 1st round picks. On average, 8th Highest pick assuming 1st round picks.
+Considered only 1st round picks because usually those players are the ones that make the difference to a franchise.
+
+Interpretation: So we're selecting very high (i.e. top 8 on average between 2013-2022) (plot 1), which 
+should lead to us selecting the better players earlier but we're using our picks poorly (26th best) in terms of avg net rating from drafted players.
+Not such great return on value huh? Why might this be the case (plot2)?
+```{r}
+p1 <- draft_picks %>% 
+  filter(organization_type == "College") %>% 
+  filter(round_number == 1) %>% 
+  group_by(team_abbreviation) %>% 
+  summarise(avg_net_rating = mean(career_net_rating, na.rm = TRUE)) %>% 
+  arrange(avg_net_rating) %>% 
+  mutate(ToHighlight = ifelse(team_abbreviation == "NYK", "yes", "no")) %>% 
+  ggplot(aes(x = reorder(team_abbreviation, avg_net_rating),
+             y = avg_net_rating,
+             fill = ToHighlight)) +
+  geom_col() + 
+  labs(title = "Avg Net Rating of 1st Round Draftees by Team (2013-2022)",
+       x = "Team",
+       y = "Average Net Rating") + 
+  coord_flip() + 
+  scale_fill_manual(values = c("yes" = "#E94B3CFF", "no" = "#2D2926FF")) + 
+  theme_classic() + 
+  theme(legend.position = "none")
+  
+
+p2 <- draft_picks %>% 
+  filter(organization_type == "College") %>% 
+  filter(round_number == 1) %>% 
+  group_by(team_abbreviation) %>% 
+  summarise(avg_pick_number = mean(overall_pick, na.rm = TRUE)) %>% 
+  arrange(avg_pick_number) %>% 
+  mutate(ToHighlight = ifelse(team_abbreviation == "NYK", "yes", "no")) %>% 
+  ggplot(aes(x = reorder(team_abbreviation, -avg_pick_number),
+             y = avg_pick_number,
+             fill = ToHighlight)) +
+  geom_col() + 
+  labs(title = "Avg 1st Round Pick Number by Team (2013-2022)",
+       x = "Team",
+       y = "Average 1st Round Pick Number") + 
+  coord_flip() + 
+  scale_fill_manual(values = c("yes" = "#E94B3CFF", "no" = "#2D2926FF")) + 
+  theme_classic() + 
+  theme(legend.position = "none")
+
+plot_grid(p2, p1)
+```
+
+As college players make up around 4/5th of total drafted players, lets dive deeper into the Knicks selections
+of college players over the past decade:
+```{r}
+draft_picks %>% 
+  count(organization_type)
+```
+
+But why is it that the Knicks are drafting worse players than the other teams when they have significantly higher picks (i.e. under performing with picks)?
+
+## Perhaps due to the colleges selected from?
+
+## NOTE: THE BELOW SECTION RELATES TO ALL TEAMS, NOT JUST THE KNICKS AND HOW TO IMPROVE DRAFTING. BUT ESPECIALLY RELEVANT
+## FOR THE KNICKS CONSIDERING THEIR POOR DRAFTING HISTORY IN THE PAST DECADE.
+
+Firstly, it must be noted that we're only considering colleges that have had 7 or more NBA draft picks in the past decade. 
+Colleges with a small number of drafted players don't have a sufficient sample size in the NBA confidently determine the
+performance of that colleges players in the NBA.
+
+**NOTE: COULD TRY TO IMPLEMENT A BETTER LOWER LIMIT SIZE OF 5 USING STATISTICS!!!**
+
+As seen, these are the top ten colleges in terms of average college net rating of drafted players in the NBA.
+If you notice anything about these colleges, they all have relatively strong reputations in the college game
+for being powerhouse basketball schools, having won a total of 35 national championships between them,
+out of a possible 61. Considering there's a possible 351 college teams, these ten colleges clearly are 
+some of the biggest out winning 57% of all national championships in history.
+```{r}
+top_ten_colleges <- draft_picks %>% 
+  filter(organization_type == "College") %>% 
+  group_by(organization) %>% 
+  mutate(n = n()) %>% 
+  filter(n >= 7) %>% 
+  summarise(avg_college_net_rating = mean(career_net_rating, na.rm = TRUE)) %>% 
+  slice_max(order_by = avg_college_net_rating, n = 10)
+
+top_ten_colleges
+```
+
+Clearly, no meaningful correlation between the number of selections a team makes against their win percentage. So what part
+of the draft might actually influence a teams ability to win?
+```{r}
+team_wins_df2 <- team_wins_df %>% 
+  select(team_id, team_abbreviation, total_win_percentage)
+
+college_winning <- draft_picks %>% 
+  filter(organization %in% top_ten_colleges$organization) %>% 
+  group_by(team_abbreviation) %>% 
+  summarise(top_ten_college_selections = n()) %>% 
+  arrange(desc(top_ten_college_selections)) %>% 
+  left_join(team_wins_df2) %>% 
+  select(-team_id)
+
+correlation_college <- substr(as.character(cor(college_winning$total_win_percentage, college_winning$top_ten_college_selections)), start = 0, stop = 6)
+
+college_winning %>% 
+  ggplot(aes(x = top_ten_college_selections, y = total_win_percentage)) + 
+  geom_point() + 
+  geom_smooth(se = FALSE) + 
+  annotate(geom = "text", label = paste("correlation = ", correlation_college), color = "blue", x = 6, y = 60, size = 5) + 
+  labs(title = "Effects of Drafting International Players on Winning %",
+       x = "International Players Drafted (%)",
+       y = "Winning Percentage") + 
+  theme_classic()
+```
+
+Perhaps we could look into the effects on winning from drafting more international players?
+
+Moderate degree of negative correlation between total_win_percentage and international drafted players. It seems as if you tend to win less
+the more International players you draft.
+
+
+```{r}
+intenational_winning_df <- draft_picks %>% 
+  filter(organization_type %in% c("College", "International")) %>% 
+  count(team_abbreviation, organization_type) %>% 
+  pivot_wider(names_from = organization_type, values_from = n) %>% 
+  group_by(team_abbreviation) %>% 
+  mutate(International = ifelse(is.na(International), 0, International)) %>%             # Accounting for LAC having drafted 0 International players.
+  summarise(international_percent = International / (College + International) * 100) %>%
+  left_join(team_wins_df2, on = "team_abbreviation")
+
+correlation <- substr(as.character(cor(intenational_winning_df$total_win_percentage, intenational_winning_df$international_percent)), start = 0, stop = 6)
+
+intenational_winning_df %>% 
+  ggplot(aes(x = international_percent, y = total_win_percentage)) + 
+  geom_point() + 
+  geom_smooth(se = FALSE) + 
+  annotate(geom = "text", label = paste("correlation = ", correlation), color = "blue", x = 23, y = 60, size = 5) + 
+  labs(title = "Effects of Drafting International Players on Winning %",
+       x = "International Players Drafted (%)",
+       y = "Winning Percentage") + 
+  theme_classic()
+```
+
+So If there is NO MEAINGFUL CORRELATION between winning percentage and the college program you draft from and there is only MODERATE
+negative correlation between winning percentage and the percentage of International players you select, what is actually important?
+
+
+
+It seems pretty obvious right? Selecting the right players with your picks.
+
+
+
+As a further interesting note, despite drafting International players having a moderately *negative correlation* with winning percentage,
+we shouldn't just not draft International players. 
+
+* For one, it a only a moderately strong negative correlation.
+* But more importantly, this data contains data on ALL INTERNATIONAL PLAYERS. Why is this of importance? International players
+  as seen below are typically drafted lower than college players. Perhaps due to biases? Lack of exposure to NBA scouts? A multiple of reasons.
+  
+
+Interpretation: International players are selected on average, 4.3 picks lower than college players.
+
+```{r}
+draft_picks %>% 
+  filter(organization_type %in% c("College", "International")) %>% 
+  group_by(organization_type) %>% 
+  summarise(avg_pick_number = mean(overall_pick, na.rm = TRUE))
+```
+
+
+Looking further into the data, if we were to select between a College and International player, who really should we select
+given selecting college players from a big program has a better correlation with winning compared to that of selecting International players?
+
+
 ## Are Non-College (i.e. International players) better than College players in terms of avg_net_rating?
 * Compare the two and see if College or Non-College players make the bigger impact?
 * Then see what demographic the knicks are primarily drafting (pie-chart). College or non-college. 
@@ -509,6 +682,25 @@ of players coming from college against those coming from professional ball.
 draft_picks %>% 
   count(organization_type)
 ```
+
+Interpreation: To get an overview of performance of College vs International players,
+clearly the avg_rating for International players is lower than that of College players,
+but the sd is higher.
+
+This indicates that perhaps International players have a greater spread of performance, with it being more risky
+to select International players due to lower average rating but it yielding potentially greater rewards
+with the spread of performance being so high. It seems as if college players are the safer choice, but for more
+reward, you'd select International.
+
+```{r}
+draft_picks %>% 
+  filter(organization_type %in% c("College", "International")) %>% 
+  group_by(organization_type) %>%
+  summarise(sd_rating = sd(career_net_rating, na.rm = TRUE),
+            avg_rating = mean(career_net_rating, na.rm = TRUE))
+```
+
+To analyse the above further, we can look into the *quantiles*:
 
 Interpretation: It can be seen that College the Q1 and Median college drafted played in terms for average net rating will perform
 better than that of the internationally drafted player. However, the Q3 and top 10% of performing draft picks for professional players
@@ -531,28 +723,14 @@ than their college counterparts (i.e. players in the bottom 25% or bottom 50% of
 draft_picks %>% 
   filter(organization_type %in% c("College", "International")) %>% 
   group_by(organization_type) %>% 
-  summarise_at(vars(avg_net_rating),
+  summarise_at(vars(career_net_rating),
               list(Q1=~quantile(., probs = 0.25, na.rm = TRUE),
                     median=~median(.x, na.rm = TRUE), Q3=~quantile(., probs = 0.75, na.rm = TRUE),
                    top_decile = ~quantile(., probs = 0.9, na.rm = TRUE)))
 ```
 
-Professional players are selected on average, 4.3 picks lower than college players, making it seem like no surprise that
-college players would usually perform better than International players as International players seem to be selected lower.
 
-However, the top performing international players (top 25%) perform better than that of the top performing college players.
-These are usually higher picks (often in the top 14 selections known as the Lottery). Therefore, we can analyse whether
-the Knicks are using their picks on International players who on average, if selected with higher picks (which the Knicks
-have had since 2013 due to poor performances) will perform better on average than college players.
-
-```{r}
-draft_picks %>% 
-  filter(organization_type %in% c("College", "International")) %>% 
-  group_by(organization_type) %>% 
-  summarise(avg_pick_number = mean(overall_pick, na.rm = TRUE))
-```
-
-As seen in the graph, the Knicks are 2nd in terms of International players drafted, with 35.3% of our draft picks being International.
+Interpretation: As seen in the graph, the Knicks are 2nd in terms of International players drafted, with 35.3% of our draft picks being International.
 Furthermore, alot of these picks have been high draft picks, as we've performed poorly in the since 2013 however, why did the Knicks still perform
 poorly if we're selecting a lot of International players highly?
 
@@ -564,21 +742,3 @@ coming from International.
 
 Therefore, I propose the Knicks really focus in on their drafting process and consider what qualities in International players
 would help them succeed when transitioning into the NBA. 
-
-```{r}
-percent_drafted <- draft_picks %>% 
-  filter(organization_type %in% c("College", "International")) %>% 
-  count(team_abbreviation, organization_type) %>% 
-  pivot_wider(names_from = organization_type, values_from = n) %>% 
-  group_by(team_abbreviation) %>% 
-  mutate(International = ifelse(is.na(International), 0, International)) %>%             # Accounting for LAC having drafted 0 International players.
-  summarise(international_percent = International / (College + International) * 100) %>% 
-  arrange(desc(international_percent))
-
-percent_drafted
-```
-
-
-## What colleges are the best at finding good players and are the Knicks drafting from these colleges?
-
-## How good are the Knicks at finding second round gems (i.e. players with net ratings > 0: Make a positive impact on the floor)
