@@ -60,7 +60,9 @@ salaries <- salaries %>%
   select(team, salary, season) %>% 
   filter(season >= 2013) %>% 
   filter(!(team %in% c("Fenerbahce Ulker Fenerbahce Ulker", "Maccabi Haifa Maccabi Haifa", "null Unknown",
-                       "Madrid Real Madrid", "Charlotte Bobcats", "New Orleans Hornets")))
+                       "Madrid Real Madrid", "Charlotte Bobcats", "New Orleans Hornets"))) %>% 
+  group_by(team, season) %>% 
+  summarize(salary = sum(salary))
 
 # Web scraping to get 2021/2022 NBA Salary Data:
 
@@ -116,6 +118,8 @@ salaries
 
 salaries <- salaries %>% 
   bind_rows(table_21)
+
+salaries
 ```
 
 
@@ -261,6 +265,7 @@ What can be done in the future to bring the Knicks back into their glory days an
 
 
 
+
 # Analysis 2: Comparison of the Knicks 3P% against the rest of the leagues:
 
 ## It's no secret that there has been an explosion of 3 Pointers in the past few decades, with the likes of Steph 
@@ -276,33 +281,33 @@ glimpse(game_df)
 glimpse(team_df)
 
 # Obtains a dataframe containing each teams home_game_stats in a column:
-team_df <- team_df %>% 
+team_df2 <- team_df %>% 
   select(id, full_name, abbreviation) %>% 
   left_join(game_df, by = c("id" = "team_id_home")) %>% 
   nest(home_game_stats = c(-id, -full_name, -abbreviation))
 
-team_df
+team_df2
 
 # Adds onto the dataframe each teams away_game_stats in a column:
-team_df <- team_df %>% 
+team_df2 <- team_df2 %>% 
   left_join(game_df, by = c("id" = "team_id_away")) %>% 
   nest(away_game_stats = c(-id, -full_name, -abbreviation, -home_game_stats))
 
 # Adds onto the dataframe each teams away_game_stats in a column: For each team, combine their home_game_stats and away_game_stats
 add_all_stats <- function(home_game_stats, away_game_stats){
-  list(bind_rows(team_df$home_game_stats[1], team_df$away_game_stats[1]))
+  list(bind_rows(team_df2$home_game_stats[1], team_df2$away_game_stats[1]))
 }
 
-team_df
+team_df2
 
 # Adds onto the dataframe a column which contains statistics on each game played by each team:\
-team_df$all_game_stats <- NA    # Initialize empty column
+team_df2$all_game_stats <- NA    # Initialize empty column
 
 for (x in 1:30) {
-  team_df$all_game_stats[x] <- list(bind_rows(team_df$home_game_stats[x], team_df$away_game_stats[x]))
+  team_df2$all_game_stats[x] <- list(bind_rows(team_df2$home_game_stats[x], team_df2$away_game_stats[x]))
 }
 
-team_df
+team_df2
 ```
 
 
@@ -310,7 +315,7 @@ team_df
 Secondly, for the New York Knicks (filtering), consider their games played between 2013-2022
 ```{r}
 # A dataframe on all the New York Knicks Games Played between 2013-2022:
-knicks_games <- team_df %>% 
+knicks_games <- team_df2 %>% 
   filter(abbreviation == "NYK") %>% 
   select(all_game_stats) %>% 
   unnest(cols = c(all_game_stats))
@@ -448,12 +453,71 @@ league_salaries %>%
        y = "Salary (in millions of dollars)")
 ```
 
+```{r}
+# Preparatory df, can hide this If I choose to.
+team_wins_df
+team_df
+salaries
+
+all_seasons_home_wins <- game_df %>% 
+  rename(team_id = team_id_home, team_abbreviation = team_abbreviation_home) %>% 
+  group_by(team_id, team_abbreviation, year) %>% 
+  summarise(home_wins = sum(wl_home == "W", na.rm = TRUE),
+            home_losses = sum(wl_home == "L", na.rm = TRUE),
+            home_win_proportion = home_wins / (home_losses + home_wins))
+
+all_seasons_away_wins <- game_df %>% 
+  rename(team_id = team_id_away, team_abbreviation = team_abbreviation_away) %>% 
+  group_by(team_id, team_abbreviation, year) %>% 
+  summarise(away_wins = sum(wl_away == "W", na.rm = TRUE),
+            away_losses = sum(wl_away == "L", na.rm = TRUE),
+            away_win_proportion = away_wins / (away_losses + away_wins))
+
+# Combining two df's for each team and add variables (total_wins) and (total_losses)
+all_seasons_team_wins <- all_seasons_home_wins %>% 
+  inner_join(all_seasons_away_wins, by = c("team_id", "team_abbreviation", "year")) %>% 
+  mutate(total_wins = home_wins + away_wins,
+         total_losses = home_losses + away_losses,
+         total_win_percentage = total_wins / (total_wins + total_losses) * 100)
+```
+
+Creating a dataframe with the year, team, salary and total_win_percentage that season:
+```{r}
+salaries$season <- as.character(salaries$season)
+
+salary_vs_wins <- salaries %>% 
+  mutate(team = recode(team, "LA Clippers" = "Los Angeles Clippers")) %>% 
+  left_join(team_df, by = c("team" = "full_name")) %>% 
+  group_by(team, season, id) %>% 
+  summarize(mean_salary = mean(salary)) %>% 
+  left_join(all_seasons_team_wins, by = c("id" = "team_id", "season" = "year")) %>% 
+  select(mean_salary, season, team_abbreviation, total_win_percentage) %>% 
+  na.omit() 
+
+salary_vs_wins %>% 
+  View()
+```
+
+Clearly, salary is not correlated with winning (i.e. Spending more money in the NBA doesn't necessarily mean you're better).
+```{r}
+salary_vs_wins %>% 
+  ggplot(aes(mean_salary, total_win_percentage)) + 
+  geom_point() + 
+  labs(title = "Salary against Win Percentage",
+       x = "Total Salary of a Team",
+       y = "Win Percentage of a Team")
+
+cor(salary_vs_wins$mean_salary, salary_vs_wins$total_win_percentage)
+```
+
+
 **CONCLUSION**: Clearly the Knicks keep with the league trend in spending. Both seem like they're on a linear progression upwards since 2016/2017 (new CBA).
 However, ever since the 2017 CBA (Collective Bargaining Agreement), it seems the league salary has overtaken the Knicks salary.
 Perhaps this is due to the 2017 CBA introducing higher max salaries. As the Knicks haven't had a player under a max contract
 since Carmelo Anthony, who left in 2017, this could explain the Knicks trending under league average salary.
 
-However, it can be seen that salary and the amount spent on players likely isn't a significant factor for the Knicks in terms of winning.
+However, it can be seen that salary and the amount spent on players likely isn't a significant factor for the Knicks in terms of winning,
+nor for any team (as seen in most recently created plot and its low correlation).
 The Knicks have only performed well from 2019 onwards in this period, making the playoffs 2 out of 4 seasons,
 where as from 2013-2019, a six year period the Knicks failed to make the playoffs even once.
 From 2019 onwards were the only times the Knicks salaries were a sizeable amount number league average.
@@ -462,7 +526,7 @@ This is likely because of the better management of players and player contracts.
 Therefore, it can be said that better management of player contracts, allowing for flexibility in trades and free agency is key to improving the Knicks winning.
 
 
-# Analysis 3: Impacts of poor drafting by the New York Knicks.
+# Analysis 4: Impacts of poor drafting by the New York Knicks.
 
 Every year, NBA teams are given draft picks to select the best players coming out of college, or playing internationally that have
 never entered the NBA draft before (i.e. usually young players around 18-22). These are pivotal selections that can change the trajectory
@@ -583,6 +647,11 @@ top_ten_colleges <- draft_picks %>%
 
 top_ten_colleges
 ```
+
+**VERY IMPORTANT NOTE TO MENTION**: THESE ARE SIMPLY ONE FACTOR THAT DETERMINES WINNING. THUS, IT'S HIGHLY UNLIKELY EITHER PLOTS HAVE A MASSIVE
+CORRELATION WITH WINNING AND THEREFORE, A 0.10 CORRELATION AND VISIBLE DIFFERENT IN PLOTS IS IMPORTANT TO ANALYSE AND NOTICE
+THE DIFFERENCE IN POTENTIALLY DRAFTING FROM POWERHOUSE COLLEGES VS INTERNATIONAL.
+
 
 Clearly, no meaningful correlation between the number of selections a team makes against their win percentage. So what part
 of the draft might actually influence a teams ability to win?
