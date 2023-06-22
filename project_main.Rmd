@@ -16,7 +16,14 @@ library(tidytext)
 library(textdata)
 library(lubridate)
 library(cowplot)
+library(polite)
+library(rvest)
+library(janitor)
 ```
+
+Persona: PRESENT MYSELF AS A DATA ANALYST AS A KNICKS FAN WHO TRIES TO PROPOSE SOLUTIONS TO HELP THE KNICKS
+SUCCEED AS AN NBA FRANCHISE. Therefore, explain every concept (like draft picks, salary etc...) to help
+basically people who don't understand basketball understand my analysis.
 
 Reading in all data:
 ```{r}
@@ -42,16 +49,73 @@ glimpse(common_player_info_df)
 team_df <- read_csv(here::here("nba_data", "team.csv"))
 glimpse(team_df)
 
-# Nba player salaries: Pre-pro
+
+# Individual player data:
+player_info <- read_csv(here::here("nba_data", "all_seasons.csv"))
+
+
+# Nba player salaries: Requires web-scraping to extract 2021 and 2022 data.
 salaries <- read_csv(here::here("nba_data", "nba_salaries.csv"))
 salaries <- salaries %>% 
-  select(name, team, salary, season) %>% 
+  select(team, salary, season) %>% 
   filter(season >= 2013) %>% 
   filter(!(team %in% c("Fenerbahce Ulker Fenerbahce Ulker", "Maccabi Haifa Maccabi Haifa", "null Unknown",
                        "Madrid Real Madrid", "Charlotte Bobcats", "New Orleans Hornets")))
 
-# Individual player data:
-player_info <- read_csv(here::here("nba_data", "all_seasons.csv"))
+# Web scraping to get 2021/2022 NBA Salary Data:
+
+# NOTE: COULD CREATE A USER-DEFINED FUNCTION!!! WOULD REDUCE CODE SIGNIFICANTLY HERE.
+
+page_22 <- read_html("https://www.spotrac.com/nba/cap/2022/")
+
+table_22 <- page_22 %>% 
+  html_table()
+
+table_22 <- data.frame(table_22) %>% 
+  as_tibble() %>% 
+  select(Team, Total.Cap) %>% 
+  rename("salary" = "Total.Cap",
+         "team" = "Team") %>% 
+  mutate(across("salary", ~gsub("\\$", "", .))) %>% 
+  mutate(across("salary", ~gsub("\\,", "", .))) %>% 
+  mutate(season = 2022)
+
+table_22$salary <- as.numeric(table_22$salary)
+
+# Looks like it's now in the same format as salary so that we can bind the rows, adding on data salary data for 2022:
+table_22
+
+salaries
+
+salaries <- salaries %>% 
+  bind_rows(table_22)
+
+
+# Do same for 2021:
+  
+page_21 <- read_html("https://www.spotrac.com/nba/cap/2021/")
+
+table_21 <- page_21 %>% 
+  html_table()
+
+table_21 <- data.frame(table_21) %>% 
+  as_tibble() %>% 
+  select(Team, Total.Cap) %>% 
+  rename("salary" = "Total.Cap",
+         "team" = "Team") %>% 
+  mutate(across("salary", ~gsub("\\$", "", .))) %>% 
+  mutate(across("salary", ~gsub("\\,", "", .))) %>% 
+  mutate(season = 2021)
+
+table_21$salary <- as.numeric(table_21$salary)
+
+# Looks like it's now in the same format as salary so that we can bind the rows, adding on data salary data for 2022:
+table_21
+
+salaries
+
+salaries <- salaries %>% 
+  bind_rows(table_21)
 ```
 
 
@@ -384,28 +448,39 @@ league_salaries %>%
        y = "Salary (in millions of dollars)")
 ```
 
-**CONCLUSION**: Clearly the Knicks keep with the league trend in spending. 
+**CONCLUSION**: Clearly the Knicks keep with the league trend in spending. Both seem like they're on a linear progression upwards since 2016/2017 (new CBA).
 However, ever since the 2017 CBA (Collective Bargaining Agreement), it seems the league salary has overtaken the Knicks salary.
 Perhaps this is due to the 2017 CBA introducing higher max salaries. As the Knicks haven't had a player under a max contract
 since Carmelo Anthony, who left in 2017, this could explain the Knicks trending under league average salary.
+
 However, it can be seen that salary and the amount spent on players likely isn't a significant factor for the Knicks in terms of winning.
-The Knicks have only performed well from 2020 onwards in this period, the only times the Knicks salaries were below league average.
+The Knicks have only performed well from 2019 onwards in this period, making the playoffs 2 out of 4 seasons,
+where as from 2013-2019, a six year period the Knicks failed to make the playoffs even once.
+From 2019 onwards were the only times the Knicks salaries were a sizeable amount number league average.
 This is likely because of the better management of players and player contracts.
 
 Therefore, it can be said that better management of player contracts, allowing for flexibility in trades and free agency is key to improving the Knicks winning.
 
-## What colleges are the best at finding good players and are the Knicks drafting from these colleges?
 
-## Are Non-College (i.e. Other Team/International players) better than College players in terms of avg_net_rating?
-* Compare the two and see if College or Non-College players make the bigger impact?
-* Then see what demographic the knicks are primarily drafting (pie-chart). College or non-college. 
-* If Non-college are making the bigger impact and Knicks are drafting more college than league avg, perhaps this is a recommendation.
+# Analysis 3: Impacts of poor drafting by the New York Knicks.
 
-## How good are the Knicks at finding second round gems (i.e. players with net ratings > 0: Make a positive impact on the floor)
+Every year, NBA teams are given draft picks to select the best players coming out of college, or playing internationally that have
+never entered the NBA draft before (i.e. usually young players around 18-22). These are pivotal selections that can change the trajectory
+of an NBA franchise as all NBA greats once were selected by an NBA team. Teams who performed poorly in terms of standings have higher selections
+than those who performed well, allowing these poor teams to attempt to draft impactful players as it's usually only those high selections
+that have servicable NBA careers.
 
-Choice of statistic: Net Rating: Measures a team's point differnential per 100 persons (i.e. how many points does a player add/remove per 100 possessions)?
-Basically, how much better off is a team with the player on the court compared to without?
+One would imagine that the New York Knicks, a franchise that is 3rd last in terms of wins since 2013 would have high draft
+picks and hence, would select the best up and coming young players. Whilst the Knicks have had high draft picks, have they been using their
+coveted high picks to select players who contribute to winning? In this section, we explore the Knicks drafting of players since 2013
+which might perhaps contribute to the Knicks failures. 
 
+Choice of statistic (i.e. to measure how well a draft pick has played in their NBA career): Net Rating: Measures a team's
+point differential per 100 persons (i.e. how many points does a player add/remove per 100 possessions)?
+Basically, how much better off is a team with the player on the court compared to without? Positive means better with them on the court. Negative
+means worse off with that player on the court.
+
+**Preparing data**
 ```{r}
 player_rating <- player_info %>% 
   select(player_name, season, net_rating) %>% 
@@ -415,12 +490,95 @@ player_rating <- player_info %>%
 draft_picks <- draft_history_df %>% 
   filter(season > 2012) %>% 
   select(person_id, player_name, season, round_number, round_pick, overall_pick, team_abbreviation, organization, organization_type) %>% 
+  mutate(organization_type = recode(organization_type, "Other Team/Club" = "International", "College/University" = "College")) %>% 
+  filter(!is.na(organization_type)) %>% 
   left_join(player_rating, by = "player_name")
-draft_picks %>% 
-  filter(team_abbreviation == "NYK")
-  
-  
 
+player_rating
+draft_picks
 ```
 
-## Home win percentage vs Away win percentage?
+## Are Non-College (i.e. International players) better than College players in terms of avg_net_rating?
+* Compare the two and see if College or Non-College players make the bigger impact?
+* Then see what demographic the knicks are primarily drafting (pie-chart). College or non-college. 
+* If Non-college are making the bigger impact and Knicks are drafting more college than league avg, perhaps this is a recommendation.
+
+As seen, draft Picks usually come from college or played professionally. Therefore, it might be worthwhile comparing the performance
+of players coming from college against those coming from professional ball.
+```{r}
+draft_picks %>% 
+  count(organization_type)
+```
+
+Interpretation: It can be seen that College the Q1 and Median college drafted played in terms for average net rating will perform
+better than that of the internationally drafted player. However, the Q3 and top 10% of performing draft picks for professional players
+will perform better than that of their college counterpart.  
+Furthermore, it can be seen that as you increase the quantile, the international players start to increase their avg_rating relative to 
+that of college players.
+
+This suggests that drafted international players have much higher potential to be impactful players or even stars in the NBA,
+which holds in line with current NBA trends as the past 4 out of 5 MVP (Most Value Player) awards have been handed to 
+Giannis and Jokic, who both played internationally prior to entering the NBA.
+
+This suggests that international players who make a difference (i.e. are in the top 25% or 10% of 
+professionally drafted players) make a *larger* difference than their college counterparts can be explained by the position 
+in which these players were selected.
+
+However, on the contrary, International players who fail to make a meaningful different seem to perform worse
+than their college counterparts (i.e. players in the bottom 25% or bottom 50% of net rating).
+
+```{r}
+draft_picks %>% 
+  filter(organization_type %in% c("College", "International")) %>% 
+  group_by(organization_type) %>% 
+  summarise_at(vars(avg_net_rating),
+              list(Q1=~quantile(., probs = 0.25, na.rm = TRUE),
+                    median=~median(.x, na.rm = TRUE), Q3=~quantile(., probs = 0.75, na.rm = TRUE),
+                   top_decile = ~quantile(., probs = 0.9, na.rm = TRUE)))
+```
+
+Professional players are selected on average, 4.3 picks lower than college players, making it seem like no surprise that
+college players would usually perform better than International players as International players seem to be selected lower.
+
+However, the top performing international players (top 25%) perform better than that of the top performing college players.
+These are usually higher picks (often in the top 14 selections known as the Lottery). Therefore, we can analyse whether
+the Knicks are using their picks on International players who on average, if selected with higher picks (which the Knicks
+have had since 2013 due to poor performances) will perform better on average than college players.
+
+```{r}
+draft_picks %>% 
+  filter(organization_type %in% c("College", "International")) %>% 
+  group_by(organization_type) %>% 
+  summarise(avg_pick_number = mean(overall_pick, na.rm = TRUE))
+```
+
+As seen in the graph, the Knicks are 2nd in terms of International players drafted, with 35.3% of our draft picks being International.
+Furthermore, alot of these picks have been high draft picks, as we've performed poorly in the since 2013 however, why did the Knicks still perform
+poorly if we're selecting a lot of International players highly?
+
+Simply select International players highly, but rather good recruitment is required. 
+
+Take for example Denver, who are the 3rd highest international drafted with 31.6% of draftees coming from International basketball.
+They however, won the 2022/2023 NBA championship with Nikola Jokic, their best player and one of the best players in NBA history
+coming from International.
+
+Therefore, I propose the Knicks really focus in on their drafting process and consider what qualities in International players
+would help them succeed when transitioning into the NBA. 
+
+```{r}
+percent_drafted <- draft_picks %>% 
+  filter(organization_type %in% c("College", "International")) %>% 
+  count(team_abbreviation, organization_type) %>% 
+  pivot_wider(names_from = organization_type, values_from = n) %>% 
+  group_by(team_abbreviation) %>% 
+  mutate(International = ifelse(is.na(International), 0, International)) %>%             # Accounting for LAC having drafted 0 International players.
+  summarise(international_percent = International / (College + International) * 100) %>% 
+  arrange(desc(international_percent))
+
+percent_drafted
+```
+
+
+## What colleges are the best at finding good players and are the Knicks drafting from these colleges?
+
+## How good are the Knicks at finding second round gems (i.e. players with net ratings > 0: Make a positive impact on the floor)
