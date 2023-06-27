@@ -1,15 +1,14 @@
 ---
-title: "Untitled"
+title: "Exploring The Failures of The New York Knicks"
 author: "Daniel Liu"
-date: "2023-06-20"
-output: html_document
+date: "27/06/2023"
+output: 
+  html_document: 
+    fig_caption: yes
 ---
 
-```{r setup, include=FALSE}
+```{r setup, warning=FALSE, error=FALSE, message=FALSE, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-```
-
-```{r}
 library(stopwords)
 library(tidyverse)
 library(tidytext)
@@ -19,43 +18,53 @@ library(cowplot)
 library(polite)
 library(rvest)
 library(janitor)
+library(data.table)
+library(formattable)
+
+customGreen0 = "#DeF7E9"
+customGreen = "#71CA97"
+customRed = "#ff7f7f"
 ```
 
-Persona: PRESENT MYSELF AS A DATA ANALYST AS A KNICKS FAN WHO TRIES TO PROPOSE SOLUTIONS TO HELP THE KNICKS
-SUCCEED AS AN NBA FRANCHISE. Therefore, explain every concept (like draft picks, salary etc...) to help
-basically people who don't understand basketball understand my analysis.
+# Introduction
 
-Reading in all data:
-```{r}
-# Gives me information about draft history.
+As a "junior data analyst" working in the basketball analytics team for Hudl, a sports analytics company specializing in improving team performance, I am tasked with gaining insight into why the New York Knicks have disappointed over the past decade in the NBA. The insights I uncover will then be presented to a New York Knicks representative to help uncover key areas of improvement to hopefully win more games. I will approach this taks through the [https://www.geeksforgeeks.org/six-steps-of-data-analysis-process/](Six Steps of Data Analysis Process).
+
+# Ask
+
+In this stage, I consider questions that might offer insights into the Knicks failures from 2013-2022.
+
+### Questions of Interest
+1. How has the rise in popularity of the 3 point shot impacted the Knicks?
+2. Does the team salary play a role in the success of a team?
+3. What players should the Knicks focus on drafting for greater success?
+
+# Prepare 
+
+I used two datasets. Firstly, [https://www.kaggle.com/datasets/wyattowalsh/basketball](NBA Database) is a dataset containing statistics on all 30 NBA teams, 4800+ NBA players and 60,000+ NBA games throughout history. Secondly, [https://www.kaggle.com/datasets/jarosawjaworski/current-nba-players-contracts-history](NBA Salaries) is a dataset containing NBA player salaries between 2010-2020.
+
+Through exploring and understand each dataset, I identified 7 datasets from the NBA Database that are suitable for the purposes of this analysis. Furthermore, the salaries dataset only goes up to 2020, whereas this analysis goes up till 2022. To resolve this lack of data, I scraped data from [https://www.spotrac.com/nba/cap/2022/](spotrac) to obtain NBA team salaries between 2021-2022.  
+
+***
+
+Importing required files
+
+```{r results='hide'}
 draft_history_df <- read_csv(here::here("nba_data", "draft_history.csv"))
-
-# Gives me information about the game with its attendance and game time.
 game_info_df <- read_csv(here::here("nba_data", "game_info.csv"))
-
-# Important: Tells me information about all the games played.
 game_df <- read_csv(here::here("nba_data", "game.csv"))
-glimpse(game_df)
-
 play_by_play_df <- read_csv(here::here("nba_data", "play_by_play.csv"))
-glimpse(play_by_play_df)
-
-# VERY USEFUL:
-# Especially person_id, school, country, height (compare knicks height vs rest of league height), team_abbrev, dleague (were they from d_league),  draft_round.
 common_player_info_df <- read_csv(here::here("nba_data", "common_player_info.csv"))
-glimpse(common_player_info_df)
-
-# Might be useful for matching team id with name for visualizations. Only 30 rows so very good for that.
 team_df <- read_csv(here::here("nba_data", "team.csv"))
-glimpse(team_df)
-
-
-# Individual player data:
 player_info <- read_csv(here::here("nba_data", "all_seasons.csv"))
-
-
-# Nba player salaries: Requires web-scraping to extract 2021 and 2022 data.
 salaries <- read_csv(here::here("nba_data", "nba_salaries.csv"))
+```
+
+# Process
+
+I get combine individual player salaries into 30 NBA team salaries to keep the analysis consistent on teams throughout, rather than players.
+
+```{r results='hide'}
 salaries <- salaries %>% 
   select(team, salary, season) %>% 
   filter(season >= 2013) %>% 
@@ -63,11 +72,11 @@ salaries <- salaries %>%
                        "Madrid Real Madrid", "Charlotte Bobcats", "New Orleans Hornets"))) %>% 
   group_by(team, season) %>% 
   summarize(salary = sum(salary))
+```
 
-# Web scraping to get 2021/2022 NBA Salary Data:
+Next, I perform web-scraping to get 2021 and 2022 NBA salary data.
 
-# NOTE: COULD CREATE A USER-DEFINED FUNCTION!!! WOULD REDUCE CODE SIGNIFICANTLY HERE.
-
+```{r results='hide'}
 page_22 <- read_html("https://www.spotrac.com/nba/cap/2022/")
 
 table_22 <- page_22 %>% 
@@ -84,16 +93,9 @@ table_22 <- data.frame(table_22) %>%
 
 table_22$salary <- as.numeric(table_22$salary)
 
-# Looks like it's now in the same format as salary so that we can bind the rows, adding on data salary data for 2022:
-table_22
-
-salaries
-
 salaries <- salaries %>% 
   bind_rows(table_22)
 
-
-# Do same for 2021:
   
 page_21 <- read_html("https://www.spotrac.com/nba/cap/2021/")
 
@@ -111,62 +113,34 @@ table_21 <- data.frame(table_21) %>%
 
 table_21$salary <- as.numeric(table_21$salary)
 
-# Looks like it's now in the same format as salary so that we can bind the rows, adding on data salary data for 2022:
-table_21
-
-salaries
-
 salaries <- salaries %>% 
   bind_rows(table_21)
-
-salaries
 ```
 
+As the analysis is conducted between 2013-2022, I filter for data from 29/10/2013 (start of 2013 NBA season) till present.
 
-
-# Pre-processing data:
-
-Step 1: To give every dataframe a year, month and date_time to be able to filter on it:
-
-NOTE: IMPORTANT TO FILTER ONLY FOR DATA from 2013-10-29 onwards!!! Start of the 2013/2014 NBA season.
-
-This means to show that the Knicks are poor, I'm not comparing against old old data, but rather,
-comparing **within** the years (i.e. comparing seasons where the knicks did good vs bad) AND
-comparing **between** other teams in the same period, especially those that did good.
-
-VERY IMPORTANT: COMPARING **WITHIN** THE YEARS, LOOKING AT WHY HAVE THE KNICKS STARTED TO IMPROVE SIGNIFICANTLY SINCE 2020?
-
-
-```{r}
-# Adding year to game:
-game_df$game_date <- as.Date(game_df$game_date)   # Make it a date object, don't care about time.
+```{r results='hide'}
+game_df$game_date <- as.Date(game_df$game_date)
 game_df$season_id <- as.character(game_df$season_id)
 game_df <- game_df %>%
   filter(game_date > "2013-10-29") %>% 
   mutate(year = substring(season_id, 2))
 
-# Adding year to game_info:
 game_info_df$game_date <- as.Date(game_info_df$game_date)
 game_info_df <- game_info_df %>% 
   na.omit() %>% 
   mutate(year = year(game_date)) %>% 
     filter(game_date > "2013-10-29")
 
-nrow(game_info_df) == length(unique(game_info_df$game_id))    # Checking every game is unique. Yes since no. rows = no. unique game_id.
-
-# Adding the date to play_by_play through left_join:
-game_with_year <- game_df %>% 
-  select(game_id, game_date)
-play_by_play_df <- play_by_play_df %>% 
-  left_join(game_with_year, on = "game_id") %>% 
+play_by_play_df <- game_df %>% 
+  select(game_id, game_date) %>% 
+  right_join(play_by_play_df, on = "game_id") %>% 
   filter(game_date > "2013-10-29")
-
 ```
 
-For the analysis, I require information on each of the 30 teams wins and losses, both home and away and in total. 
-As such data was not provided, create it myself.
+For the analysis, I require information on each of the 30 teams wins and losses. As such data was not provided, I wrangle the `game_df` which provides information on every game between 2013-2022 to become each teams wins at home, away and in total.
+
 ```{r}
-glimpse(game_df)
 # Home team wins:
 home_team_wins <- game_df %>% 
   rename(team_id = team_id_home, team_abbreviation = team_abbreviation_home) %>% 
@@ -174,8 +148,6 @@ home_team_wins <- game_df %>%
   summarise(home_wins = sum(wl_home == "W", na.rm = TRUE),
             home_losses = sum(wl_home == "L", na.rm = TRUE),
             home_win_proportion = home_wins / (home_losses + home_wins))
-
-home_team_wins
 
 # Away team wins:
 away_team_wins <- game_df %>% 
@@ -185,18 +157,24 @@ away_team_wins <- game_df %>%
             away_losses = sum(wl_away == "L", na.rm = TRUE),
             away_win_proportion = away_wins / (away_losses + away_wins))
 
-away_team_wins
-
-# Combining two df's for each team and add variables (total_wins) and (total_losses)
+# Total wins
 team_wins_df <- home_team_wins %>% 
   inner_join(away_team_wins, by = c("team_id", "team_abbreviation")) %>% 
   mutate(total_wins = home_wins + away_wins,
          total_losses = home_losses + away_losses,
-         total_win_percentage = total_wins / (total_wins + total_losses) * 100)
-
-team_wins_df
+         total_win_percentage = total_wins / (total_wins + total_losses) * 100) %>% 
+  select(-home_losses, -home_wins, -away_wins, -away_losses)
+  
+formattable(head(team_wins_df, 6))
 ```
 
+# Analyze: 
+
+Please note that team abbreviations will be used in data frames and visualizations. A list of team abbrevations and their full names can be found [https://en.wikipedia.org/wiki/Wikipedia:WikiProject_National_Basketball_Association/National_Basketball_Association_team_abbreviations](here).
+
+***
+
+# FROM HERE ON, I HAVEN'T STARTED FINALIZING THE REPORT.
 
 It's not secret the Knicks have performed poorly over the past decade. As seen below, the Knicks are the 3rd worst team with a below 50 win percentage
 between 2013 and 2022.
