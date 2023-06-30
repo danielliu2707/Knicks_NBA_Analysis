@@ -20,11 +20,44 @@ library(rvest)
 library(janitor)
 library(data.table)
 library(formattable)
-
-customGreen0 = "#DeF7E9"
-customGreen = "#71CA97"
-customRed = "#ff7f7f"
 ```
+
+# Analysis using nba_api dataframes:
+```{r}
+all_team_stats <- read_csv(here::here("nba_data", "all_team_stats.csv"))
+glimpse(all_team_stats)
+nyk_team_stats <- read_csv(here::here("nba_data", "nyk_team_stats.csv"))
+team_metrics <- read_csv(here::here("nba_data", "team_metrics.csv"))
+glimpse(team_metrics)
+```
+
+Look at the correlation between different things. Maybe using those that most correlate, try
+to use a Linear Model to predict a teams success. Try to predict the Knicks future success?
+
+Use all_team_stats instead of all the previous dfs. Better now. Shows wins/losses much easier!!!
+
+Use team_metrics as interesting statistics to look at and see their importance.
+
+**NOTE**: Could try to add in the Python code here.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Introduction
 
@@ -56,9 +89,11 @@ game_df <- read_csv(here::here("nba_data", "game.csv"))
 play_by_play_df <- read_csv(here::here("nba_data", "play_by_play.csv"))
 common_player_info_df <- read_csv(here::here("nba_data", "common_player_info.csv"))
 team_df <- read_csv(here::here("nba_data", "team.csv"))
+glimpse(team_df)
 player_info <- read_csv(here::here("nba_data", "all_seasons.csv"))
 salaries <- read_csv(here::here("nba_data", "nba_salaries.csv"))
 ```
+
 
 # Process
 
@@ -76,45 +111,31 @@ salaries <- salaries %>%
 
 Next, I perform web-scraping to get 2021 and 2022 NBA salary data.
 
-```{r results='hide'}
-page_22 <- read_html("https://www.spotrac.com/nba/cap/2022/")
-
-table_22 <- page_22 %>% 
-  html_table()
-
-table_22 <- data.frame(table_22) %>% 
-  as_tibble() %>% 
-  select(Team, Total.Cap) %>% 
-  rename("salary" = "Total.Cap",
+```{r}
+scrape_salaries <- function(html_link, year){
+  page <- read_html(html_link)
+  table <- page %>% 
+    html_table() %>% 
+    data.frame() %>% 
+    as_tibble() %>% 
+    select(Team, Total.Cap) %>% 
+    rename("salary" = "Total.Cap",
          "team" = "Team") %>% 
-  mutate(across("salary", ~gsub("\\$", "", .))) %>% 
-  mutate(across("salary", ~gsub("\\,", "", .))) %>% 
-  mutate(season = 2022)
-
-table_22$salary <- as.numeric(table_22$salary)
-
-salaries <- salaries %>% 
-  bind_rows(table_22)
-
+    mutate(across("salary", ~gsub("\\$", "", .))) %>% 
+    mutate(across("salary", ~gsub("\\,", "", .))) %>% 
+    mutate(season = year)
   
-page_21 <- read_html("https://www.spotrac.com/nba/cap/2021/")
+  table$salary <- as.numeric(table$salary)
+  
+  returned_df <- salaries %>% 
+    bind_rows(table)
+  
+  return(returned_df)
+  
+}
 
-table_21 <- page_21 %>% 
-  html_table()
-
-table_21 <- data.frame(table_21) %>% 
-  as_tibble() %>% 
-  select(Team, Total.Cap) %>% 
-  rename("salary" = "Total.Cap",
-         "team" = "Team") %>% 
-  mutate(across("salary", ~gsub("\\$", "", .))) %>% 
-  mutate(across("salary", ~gsub("\\,", "", .))) %>% 
-  mutate(season = 2021)
-
-table_21$salary <- as.numeric(table_21$salary)
-
-salaries <- salaries %>% 
-  bind_rows(table_21)
+salaries <- scrape_salaries("https://www.spotrac.com/nba/cap/2022/", 2022)
+salaries <- scrape_salaries("https://www.spotrac.com/nba/cap/2021/", 2021)
 ```
 
 As the analysis is conducted between 2013-2022, I filter for data from 29/10/2013 (start of 2013 NBA season) till present.
