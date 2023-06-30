@@ -14,22 +14,17 @@ library(tidyverse)
 library(tidytext)
 library(textdata)
 library(lubridate)
+library(plotly)
 library(cowplot)
 library(polite)
 library(rvest)
 library(janitor)
 library(data.table)
-library(formattable)
+library(rstatix)
 ```
 
 # Analysis using nba_api dataframes:
-```{r}
-all_team_stats <- read_csv(here::here("nba_data", "all_team_stats.csv"))
-glimpse(all_team_stats)
-nyk_team_stats <- read_csv(here::here("nba_data", "nyk_team_stats.csv"))
-team_metrics <- read_csv(here::here("nba_data", "team_metrics.csv"))
-glimpse(team_metrics)
-```
+
 
 Look at the correlation between different things. Maybe using those that most correlate, try
 to use a Linear Model to predict a teams success. Try to predict the Knicks future success?
@@ -38,15 +33,76 @@ Use all_team_stats instead of all the previous dfs. Better now. Shows wins/losse
 
 Use team_metrics as interesting statistics to look at and see their importance.
 
-**NOTE**: Could try to add in the Python code here.
 
 
+# Extracting data using nba_api in Python:
 
+```{python echo = F, eval = F}
+import pandas as pd
+import requests
+import numpy as np
+from nba_api.stats.endpoints import leaguegamefinder
+from nba_api.stats.endpoints import teamyearbyyearstats
+from nba_api.stats.endpoints import franchiseplayers
+from nba_api.stats.endpoints import teamestimatedmetrics
+from nba_api.stats.static import teams
+from nba_api.stats.static import players
+```
 
+```{python}
+# Helps identify the different teams and their IDs
+all_teams = teams.get_teams()
+team_mappings = {}
+for team in all_teams:
+    team_mappings[team['abbreviation']] = team['id']
+    
+team_ids = []
+for team in all_teams:
+    team_ids.append(team['id'])
 
+team_abbrevs = []
+for team in all_teams:
+    team_abbrevs.append(team['abbreviation'])
+team_mappings
+```
 
+```{python eval = F}
+# Obtaining advanced metrics for all teams 2013 onwards:
+seasons = ['2013-14', '2014-15', '2015-16', '2016-17', '2017-18', '2018-19', '2019-20', '2020-21', '2021-22', '2022-23']
+team_metrics = []
+for season in seasons:
+    tmp = teamestimatedmetrics.TeamEstimatedMetrics(season = season).get_data_frames()[0]
+    tmp["YEAR"] = season[:4]
+    team_metrics.append(tmp)
+team_metrics = pd.concat(team_metrics, ignore_index = True)
+team_metrics.to_csv("team_metrics.csv", index = False)
+```
 
+```{python eval = F}
+# Gets stats for a single team
+def get_team_stats(individual_team_id: int):
+    all_df = teamyearbyyearstats.TeamYearByYearStats(team_id = individual_team_id, timeout = 10).get_data_frames()[0]
+    all_df = all_df.tail(10)
+    all_df["YEAR"] = all_df["YEAR"].apply(lambda year: year[:4])
+    return all_df
+```
 
+```{python eval = F}
+# Obtaining basic team stats from 2013 on wards:
+team_data = []
+for team_id in team_ids:
+    team_info = get_team_stats(str(team_id))
+    team_data.append(team_info)
+all_team_df = pd.concat(team_data, ignore_index = True)
+all_team_df.to_csv("all_team_stats.csv", index = True)
+```
+
+```{python eval = F}
+# Obtaining NYK team stats from 2013 on wards:
+NYK_stats_df = teamyearbyyearstats.TeamYearByYearStats(team_id = 1610612752, timeout = 10).get_data_frames()[0].tail(10)
+NYK_stats_df["YEAR"] = NYK_stats_df["YEAR"].apply(lambda year: year[:4])
+NYK_stats_df.to_csv("nyk_team_stats.csv", index = True)
+```
 
 
 
@@ -61,7 +117,7 @@ Use team_metrics as interesting statistics to look at and see their importance.
 
 # Introduction
 
-As a "junior data analyst" working in the basketball analytics team for Hudl, a sports analytics company specializing in improving team performance, I am tasked with gaining insight into why the New York Knicks have disappointed over the past decade in the NBA. The insights I uncover will then be presented to a New York Knicks representative to help uncover key areas of improvement to hopefully win more games. I will approach this taks through the [https://www.geeksforgeeks.org/six-steps-of-data-analysis-process/](Six Steps of Data Analysis Process).
+As a "junior data analyst" working in the basketball analytics team for Hudl, a sports analytics company specializing in improving team performance, I am tasked with gaining insight into why the New York Knicks have disappointed over the past decade in the NBA. The insights I uncover will then be presented to a New York Knicks representative to help uncover key areas of improvement to hopefully win more games. I will approach this task through the [https://www.geeksforgeeks.org/six-steps-of-data-analysis-process/](Six Steps of Data Analysis Process).
 
 # Ask
 
@@ -86,16 +142,42 @@ Importing required files
 draft_history_df <- read_csv(here::here("nba_data", "draft_history.csv"))
 game_info_df <- read_csv(here::here("nba_data", "game_info.csv"))
 game_df <- read_csv(here::here("nba_data", "game.csv"))
-play_by_play_df <- read_csv(here::here("nba_data", "play_by_play.csv"))
 common_player_info_df <- read_csv(here::here("nba_data", "common_player_info.csv"))
 team_df <- read_csv(here::here("nba_data", "team.csv"))
 glimpse(team_df)
 player_info <- read_csv(here::here("nba_data", "all_seasons.csv"))
 salaries <- read_csv(here::here("nba_data", "nba_salaries.csv"))
+play_by_play_df <- read_csv(here::here("nba_data", "play_by_play.csv"))
+```
+
+```{r}
+all_team_stats <- read_csv(here::here("nba_data", "all_team_stats.csv"))
+glimpse(all_team_stats)
+nyk_team_stats <- read_csv(here::here("nba_data", "nyk_team_stats.csv"))
+team_metrics <- read_csv(here::here("nba_data", "team_metrics.csv"))
+glimpse(team_metrics)
 ```
 
 
 # Process
+
+I clean the column names of data frames from NBA API:
+```{r}
+all_team_stats <- clean_names(all_team_stats)
+nyk_team_stats <- clean_names(nyk_team_stats)
+team_metrics <- clean_names(team_metrics)
+```
+
+
+As the Charlotte Bobcats became the Hornets in 2013 (i.e. team name change), change their name in 2013 to the Hornets.
+```{r}
+all_team_stats <- all_team_stats %>% 
+  mutate(team_name = recode(team_name, "Bobcats" = "Hornets"))
+
+team_metrics <- team_metrics %>% 
+  mutate(team_name = recode(team_name, "Charlotte Bobcats" = "Charlotte Hornets"))
+```
+
 
 I get combine individual player salaries into 30 NBA team salaries to keep the analysis consistent on teams throughout, rather than players.
 
@@ -159,56 +241,41 @@ play_by_play_df <- game_df %>%
   filter(game_date > "2013-10-29")
 ```
 
-For the analysis, I require information on each of the 30 teams wins and losses. As such data was not provided, I wrangle the `game_df` which provides information on every game between 2013-2022 to become each teams wins at home, away and in total.
+For the analysis, I require information on each of the 30 teams wins and losses. As such data was not provided in the Kaggle dataset, I used the nba_api to extract information regarding wins and losses, among other statistics for each team.
 
 ```{r}
-# Home team wins:
-home_team_wins <- game_df %>% 
-  rename(team_id = team_id_home, team_abbreviation = team_abbreviation_home) %>% 
-  group_by(team_id, team_abbreviation) %>% 
-  summarise(home_wins = sum(wl_home == "W", na.rm = TRUE),
-            home_losses = sum(wl_home == "L", na.rm = TRUE),
-            home_win_proportion = home_wins / (home_losses + home_wins))
+team_wins_df <- all_team_stats %>% 
+  select(team_id, team_name, year, gp, wins, losses, win_pct) %>% 
+  mutate(win_pct = win_pct * 100) %>% 
+  arrange(year)
 
-# Away team wins:
-away_team_wins <- game_df %>% 
-  rename(team_id = team_id_away, team_abbreviation = team_abbreviation_away) %>% 
-  group_by(team_id, team_abbreviation) %>% 
-  summarise(away_wins = sum(wl_away == "W", na.rm = TRUE),
-            away_losses = sum(wl_away == "L", na.rm = TRUE),
-            away_win_proportion = away_wins / (away_losses + away_wins))
-
-# Total wins
-team_wins_df <- home_team_wins %>% 
-  inner_join(away_team_wins, by = c("team_id", "team_abbreviation")) %>% 
-  mutate(total_wins = home_wins + away_wins,
-         total_losses = home_losses + away_losses,
-         total_win_percentage = total_wins / (total_wins + total_losses) * 100) %>% 
-  select(-home_losses, -home_wins, -away_wins, -away_losses)
-  
-formattable(head(team_wins_df, 6))
+knitr::kable(head(team_wins_df, 6))
 ```
+
+
 
 # Analyze: 
 
-Please note that team abbreviations will be used in data frames and visualizations. A list of team abbrevations and their full names can be found [https://en.wikipedia.org/wiki/Wikipedia:WikiProject_National_Basketball_Association/National_Basketball_Association_team_abbreviations](here).
+Please note that team abbreviations will be used in some data frames and visualizations. A list of team abbreviations and their full names can be found [https://en.wikipedia.org/wiki/Wikipedia:WikiProject_National_Basketball_Association/National_Basketball_Association_team_abbreviations](here).
 
 ***
 
 # FROM HERE ON, I HAVEN'T STARTED FINALIZING THE REPORT.
 
-It's not secret the Knicks have performed poorly over the past decade. As seen below, the Knicks are the 3rd worst team with a below 50 win percentage
-between 2013 and 2022.
+It's not secret the Knicks have performed poorly over the past decade. On average,
+you'd expect the Knicks to have a below 40% win percentage, placing them 3rd last in the NBA over this stretch.
 ```{r}
 team_wins_df %>% 
-  mutate(ToHighlight = ifelse(team_abbreviation == "NYK", "yes", "no")) %>% 
-  ggplot(aes(x = reorder(team_abbreviation, total_win_percentage),
-             y = total_win_percentage,
+  mutate(ToHighlight = ifelse(team_name == "Knicks", "yes", "no")) %>% 
+  group_by(team_name, ToHighlight) %>% 
+  summarise(avg_win_pct = mean(win_pct)) %>% 
+  ggplot(aes(x = reorder(team_name, avg_win_pct),
+             y = avg_win_pct,
              fill = ToHighlight)) +
   geom_col() + 
-  labs(title = "Win percentage of each NBA team (2013-2022)",
+  labs(title = "Average win percentage of each NBA team (2013-2022)",
        x = "Team",
-       y = "Win Percentage") + 
+       y = "Average Win Percentage") + 
   coord_flip() + 
   scale_fill_manual(values = c("yes" = "#E94B3CFF", "no" = "#2D2926FF")) + 
   theme_classic() + 
@@ -265,154 +332,112 @@ What can be done in the future to bring the Knicks back into their glory days an
 
 
 
+
+
+
+
+
 # Analysis 2: Comparison of the Knicks 3P% against the rest of the leagues:
 
-## It's no secret that there has been an explosion of 3 Pointers in the past few decades, with the likes of Steph 
-## Curry and revoluntising the game from beyond the arc. In this section, I explore the performance and impact
-## that the three point shot has had on the New York Knicks since 2013.
 
-Firstly: Preparatory step. For each of the 30 teams, have their home_game_stats, away_game_stats and all_game_stats in a dataframe.
+## Corrleation between 3P's and wins.
 
-Explain how each team now has all their games played in all_games_stats as a tibble containing details on the game in the all_game_stats column.
+Key Takeaways:
+
+* Considering all of the "common" NBA statistical measures such as assists, blocks, points, rebounds etc..., It's actually 3P% which affects winning the most with a 0.58 correlation. This is seen below when comparing each statistical measure's correlation with win percentage.
+
 ```{r}
-# Obtaining every game that every team has played in:
-glimpse(game_df)
-glimpse(team_df)
+cor_df <- all_team_stats %>% 
+  select(win_pct, fg3_pct, reb, ast, stl, tov, blk, pts) %>% 
+  cor_mat() %>% 
+  gather(-rowname, key = cor_var, value = r)
 
-# Obtains a dataframe containing each teams home_game_stats in a column:
-team_df2 <- team_df %>% 
-  select(id, full_name, abbreviation) %>% 
-  left_join(game_df, by = c("id" = "team_id_home")) %>% 
-  nest(home_game_stats = c(-id, -full_name, -abbreviation))
+cor_df %>% 
+  ggplot(aes(x = rowname, y = cor_var, fill = r)) + 
+  geom_tile() + 
+  labs(x = "variables", y = "variables") + 
+  scale_fill_gradient(low = "light yellow", high = "dark green") +
+  geom_text(aes(label = r)) + 
+  geom_segment(aes(x = 0.5,xend = 8.5,y = 7.5,yend = 7.5),colour="#FF4500", size = 1.5) + 
+  geom_segment(aes(x = 0.5,xend = 8.5,y = 8.5,yend = 8.5),colour="#FF4500", size = 1.5) +
+  geom_segment(aes(x = 0.5,xend = 0.5,y = 7.5,yend = 8.5),colour="#FF4500", size = 1.5) +
+  geom_segment(aes(x = 8.5,xend = 8.5,y = 7.5,yend = 8.5),colour="#FF4500", size = 1.5)
+```
 
-team_df2
+To support above:
 
-# Adds onto the dataframe each teams away_game_stats in a column:
-team_df2 <- team_df2 %>% 
-  left_join(game_df, by = c("id" = "team_id_away")) %>% 
-  nest(away_game_stats = c(-id, -full_name, -abbreviation, -home_game_stats))
+The following plot considers all 30 NBA teams for the ten seasons between 2013-2022 (i.e. 300 data points) and their
+3 point percentage for that season against their win percentage. As theres 82 games played per season,
+this is more than a sufficient sample size.
 
-# Adds onto the dataframe each teams away_game_stats in a column: For each team, combine their home_game_stats and away_game_stats
-add_all_stats <- function(home_game_stats, away_game_stats){
-  list(bind_rows(team_df2$home_game_stats[1], team_df2$away_game_stats[1]))
-}
-
-team_df2
-
-# Adds onto the dataframe a column which contains statistics on each game played by each team:\
-team_df2$all_game_stats <- NA    # Initialize empty column
-
-for (x in 1:30) {
-  team_df2$all_game_stats[x] <- list(bind_rows(team_df2$home_game_stats[x], team_df2$away_game_stats[x]))
-}
-
-team_df2
+A moderate positive correlation is displayed.
+```{r}
+fg3_corr <- substr(as.character(cor(all_team_stats$win_pct, all_team_stats$fg3_pct)), start = 0, stop = 5)
+all_team_stats %>% 
+  ggplot(aes(x = fg3_pct, y = win_pct)) + 
+  geom_point(color = "#ff48a5") + 
+  labs(title = "Effect of 3 Point % on Winning",
+       x = "3 Point Percentage",
+       y = "Win Percentage") +
+  geom_smooth(method = "lm", se = FALSE, color = "#89ABE3") +
+  annotate(geom = "text", label = paste("r = ", fg3_corr), color = "#ff48a5", x = 0.33, y = 0.82, size = 6) +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5, size = 23))
 ```
 
 
+^ With above demonstrating importance of 3P%, how have the Knicks performed? Could this explain our performance?
 
-Secondly, for the New York Knicks (filtering), consider their games played between 2013-2022
+Firstly, lets compare the Knicks 3P% over time, and against league average. Apart from 2013, 2020 and 2021, the Knicks have been a below league 
+average 3 point percentage shooting team for the 10 seasons measured.
+
 ```{r}
-# A dataframe on all the New York Knicks Games Played between 2013-2022:
-knicks_games <- team_df2 %>% 
-  filter(abbreviation == "NYK") %>% 
-  select(all_game_stats) %>% 
-  unnest(cols = c(all_game_stats))
-```
-
-Look at the trend of 3 point % over time for the knicks against how many wins we had that season.
-NOTE: Knicks abbreviation is "NYK"
-```{r}
-# Focus is on 3 points attempted + made:
-knicks_threes <- knicks_games %>% 
-  select(year, team_abbreviation_home, wl_home, fg3a_home, fg3m_home, team_abbreviation_away, wl_away, fg3a_away, fg3m_away, wl_home, wl_away)
-
-knicks_threes
-
-# Obtain a column containing the number of 3 pointers made + attempted per game for every Knicks game between 2013-2022:
-knicks_threes <- knicks_threes %>% 
-  mutate(
-    knicks_3a = case_when(
-    team_abbreviation_home == "NYK" ~ fg3a_home,
-    TRUE ~ fg3a_away
-  ),
-    knicks_3m = case_when(
-    team_abbreviation_home == "NYK" ~ fg3m_home,
-    TRUE ~ fg3m_away
-  ))
-
-# Obtain a column containing whether the knicks won that game or not (1 = win, 0 = loss):
-knicks_threes <- knicks_threes %>% 
-  mutate(
-    knicks_win = case_when(
-    (team_abbreviation_home == "NYK") & (wl_home == "W") ~ 1,
-    (team_abbreviation_home == "NYK") & (wl_home == "L") ~ 0,
-    (team_abbreviation_away == "NYK") & (wl_away == "W") ~ 1,
-    TRUE ~ 0
-    ))
-
-
-# Calculating for each year, the knicks 3P% by summing up 3's attempted / 3's made that year:
-# Note: Missing 2017 Data. MAKE MENTION IN MY REPORT. DATA NOT SO GOOD?
-knicks_threes <- knicks_threes %>% 
+p1 <- all_team_stats %>% 
   group_by(year) %>% 
-  summarise(knicks_3p_percent = (sum(knicks_3m) / sum(knicks_3a)) * 100,
-            knicks_3p_attemped = sum(knicks_3a))
-```
-
-Compare the Knicks total 3 point % over 2013-2022 compared to the rest of the league.
-```{r}
-# Performing same steps as above but now on all teams to get a league average:
-all_teams_threes <- game_df %>% 
-  select(year, team_abbreviation_home, wl_home, fg3a_home, fg3m_home, team_abbreviation_away, wl_away, fg3a_away, fg3m_away)
-
-all_teams_threes <- all_teams_threes %>% 
-  mutate(total_game_fg3a = fg3a_home + fg3a_away,
-         total_game_fg3m = fg3m_home + fg3m_away)
-
-all_teams_threes
-
-all_teams_threes <- all_teams_threes %>% 
-  group_by(year) %>% 
-  summarise(all_teams_3p_percent = (sum(total_game_fg3m) / sum(total_game_fg3a)) * 100,
-            avg_teams_3p_attempted = sum(total_game_fg3a) / 30)
-
-all_teams_threes
-```
-
-Creating a visualization of 3P% by year of league average vs knicks:
-
-Plot: Knicks 3P% against league average: For most seaasons, apart from 3 outliers, much lower.
-```{r}
-knicks_threes %>%
-  left_join(all_teams_threes) %>% 
-  select(-knicks_3p_attemped, -avg_teams_3p_attempted) %>% 
-  reshape2::melt(id.var = "year", variable.name = "Teams") %>% 
-  ggplot(aes(x = as.factor(year),y = value, col = Teams, group = Teams)) + 
-  geom_line() +
+  summarise(league_3p_pct = mean(fg3_pct)) %>% 
+  left_join(nyk_team_stats, by = "year") %>% 
+  select(year, league_3p_pct, fg3_pct, win_pct) %>% 
+  rename("knicks_3p_pct" = "fg3_pct", "knicks_win_pct" = "win_pct") %>% 
+  pivot_longer(cols = c("league_3p_pct", "knicks_3p_pct"), names_to = "type", values_to = "three_pct") %>% 
+  ggplot(aes(x = as.factor(year), y = three_pct, col = type, group = type)) +
+  geom_line() + 
   geom_point() +
   theme_classic() + 
   labs(title = "Knicks 3P% Against League Average",
        x = "Year",
-       y = "3 Point Percentage") + 
-  ylim(33, 40)
+       y = "3 Point Percentage") +
+  theme(plot.title = element_text(hjust = 0.5, size = 19))
+
+ggplotly(p = p1)
 ```
+
+Interestingly, Knicks 3P Attempts also are below that of league average for 3 of the ten recorded years.
+Not only are we shooting sigifcantly less threes, we're also making significantly less threes.
+Example: In 2019, when we won only (...) games, The Knicks shot 600 less threes than league average, winning only 31.8% of their games.
+If this doesn't sound like a recipe for disaster in the modern NBA, I don't know what else does.
 
 ```{r}
-knicks_threes %>% 
-  left_join(all_teams_threes) %>% 
-  select(-knicks_3p_percent, -all_teams_3p_percent) %>% 
-  reshape2::melt(id.var = "year", variable.name = "Teams") %>% 
-  ggplot(aes(x = as.factor(year),y = value, col = Teams, group = Teams)) + 
-  geom_line() +
+p2 <- all_team_stats %>% 
+  group_by(year) %>% 
+  summarise(league_3s_attempted = mean(fg3a)) %>% 
+  left_join(nyk_team_stats, by = "year") %>% 
+  select(year, league_3s_attempted, fg3a) %>% 
+  rename("knicks_threes_attempted" = "fg3a") %>% 
+  pivot_longer(cols = c("league_3s_attempted", "knicks_threes_attempted"), names_to = "type", values_to = "threes_attempted") %>% 
+  ggplot(aes(x = as.factor(year), y = threes_attempted, col = type, group = type)) +
+  geom_line() + 
   geom_point() +
   theme_classic() + 
-  labs(title = "Knicks 3P Attempted Against League Average",
+  labs(title = "Knicks 3 Pointers Attempted Against League Average",
        x = "Year",
-       y = "3 Pointers Attempted")
+       y = "3 Pointers attempted") +
+  theme(plot.title = element_text(hjust = 0.5, size = 19))
+
+ggplotly(p = p2)
 ```
 
 
+**REDO**:
 **CONCLUSION**: As seen in plot2, there has been a steady trend upwards in the number of 3's shot by NBA teams. 
 However, the New York Knicks have been behind the ball in terms of 3 Pointers attempted compared to the league average.
 Especially prevalant in 2018 where the Knicks 3P attempted plumetted way below league average. In this season,
@@ -429,7 +454,9 @@ I recognise that 3 Pointers are only one part of the game but with how integral 
 one recipe that might contribute to success.
 
 
+
 # Analysis 3: Checking salary of the Knicks players:
+
 ```{r}
 league_salaries <- salaries %>% 
   group_by(season) %>% 
@@ -443,70 +470,39 @@ knicks_salaries <- salaries %>%
 league_salaries %>% 
   left_join(knicks_salaries) %>% 
   reshape2::melt(id.var = "season", variable.name = "Team") %>% 
-  ggplot(aes(x = as.factor(season), y = value, col = Team, group = Team)) + 
-  geom_line() +
-  geom_point() +
+  ggplot(aes(x = as.factor(season), y = value, fill = Team)) + 
+  geom_col(position = "dodge", color = "black") +
   theme_classic() + 
   labs(title = "Knicks Total Salary Against League Average Total Salary",
        x = "Year",
        y = "Salary (in millions of dollars)")
 ```
 
+The above plot shows me how the Knicks haven't been outrivaled by other NBA teams in terms of spending. Infact, we've been quite close
+to league average and even surpassed it significantly in 2013/2014. It's only been in the past 4 years where the Knicks have started to see lower and lower salaries.
+
 ```{r}
-# Preparatory df, can hide this If I choose to.
-team_wins_df
-team_df
-salaries
+all_team_stats <- all_team_stats %>% 
+  mutate(team = paste(team_city, team_name, sep = " "),
+         team = recode(team, "Los Angeles Clippers" = "LA Clippers")) %>% 
+  rename("season" = "year")
 
-all_seasons_home_wins <- game_df %>% 
-  rename(team_id = team_id_home, team_abbreviation = team_abbreviation_home) %>% 
-  group_by(team_id, team_abbreviation, year) %>% 
-  summarise(home_wins = sum(wl_home == "W", na.rm = TRUE),
-            home_losses = sum(wl_home == "L", na.rm = TRUE),
-            home_win_proportion = home_wins / (home_losses + home_wins))
-
-all_seasons_away_wins <- game_df %>% 
-  rename(team_id = team_id_away, team_abbreviation = team_abbreviation_away) %>% 
-  group_by(team_id, team_abbreviation, year) %>% 
-  summarise(away_wins = sum(wl_away == "W", na.rm = TRUE),
-            away_losses = sum(wl_away == "L", na.rm = TRUE),
-            away_win_proportion = away_wins / (away_losses + away_wins))
-
-# Combining two df's for each team and add variables (total_wins) and (total_losses)
-all_seasons_team_wins <- all_seasons_home_wins %>% 
-  inner_join(all_seasons_away_wins, by = c("team_id", "team_abbreviation", "year")) %>% 
-  mutate(total_wins = home_wins + away_wins,
-         total_losses = home_losses + away_losses,
-         total_win_percentage = total_wins / (total_wins + total_losses) * 100)
-```
-
-Creating a dataframe with the year, team, salary and total_win_percentage that season:
-```{r}
-salaries$season <- as.character(salaries$season)
+salaries$season = as.numeric(salaries$season)
 
 salary_vs_wins <- salaries %>% 
-  mutate(team = recode(team, "LA Clippers" = "Los Angeles Clippers")) %>% 
-  left_join(team_df, by = c("team" = "full_name")) %>% 
-  group_by(team, season, id) %>% 
-  summarize(mean_salary = mean(salary)) %>% 
-  left_join(all_seasons_team_wins, by = c("id" = "team_id", "season" = "year")) %>% 
-  select(mean_salary, season, team_abbreviation, total_win_percentage) %>% 
-  na.omit() 
-
-salary_vs_wins %>% 
-  View()
+  left_join(all_team_stats, by = c("team", "season")) %>% 
+  select(team, season, salary, win_pct)
 ```
 
 Clearly, salary is not correlated with winning (i.e. Spending more money in the NBA doesn't necessarily mean you're better).
+
 ```{r}
 salary_vs_wins %>% 
-  ggplot(aes(mean_salary, total_win_percentage)) + 
+  ggplot(aes(salary, win_pct)) + 
   geom_point() + 
   labs(title = "Salary against Win Percentage",
        x = "Total Salary of a Team",
        y = "Win Percentage of a Team")
-
-cor(salary_vs_wins$mean_salary, salary_vs_wins$total_win_percentage)
 ```
 
 
@@ -519,13 +515,106 @@ However, it can be seen that salary and the amount spent on players likely isn't
 nor for any team (as seen in most recently created plot and its low correlation).
 The Knicks have only performed well from 2019 onwards in this period, making the playoffs 2 out of 4 seasons,
 where as from 2013-2019, a six year period the Knicks failed to make the playoffs even once.
-From 2019 onwards were the only times the Knicks salaries were a sizeable amount number league average.
-This is likely because of the better management of players and player contracts.
+From 2019 onwards, the Knicks have been significantly below league average in terms of spending.
 
-Therefore, it can be said that better management of player contracts, allowing for flexibility in trades and free agency is key to improving the Knicks winning.
+Therefore, it can be said that better management of player contracts, allowing for flexibility in trades and free agency is key to improving the Knicks winning, not spending more.
 
 
-# Analysis 4: Impacts of poor drafting by the New York Knicks.
+
+
+
+## Potential Idea: Home court advantage??? Is it real. Are the Knicks performing poorly in this?
+
+## Potential Idea: Other factors affecting???
+```{r}
+adv_cor_df <- team_metrics %>% 
+  select(w_pct:e_tm_tov_pct) %>% 
+  cor_mat() %>% 
+  gather(-rowname, key = cor_var, value = r)
+```
+
+The variable that most stands out is the 0.97 e_net_rating. It comes as no surprise given e_net_rating's calculation.
+**insert formula for it**. As it's just how many points you score against how many you concede. Of course, the more you score, and less you concede, the higher your win percentage as basketball is all about points. However, the two components of defensive and offensive efficiency rating can be looked deeper into on their own as they too have strong correlation with winning.
+
+* Basically, both defensive and offensive rating appear to contribute equally to winning. Both encapsulated in net rating.
+
+
+
+Lets explore how the Knicks are doing in either of these categories.
+
+* Basically, see which of these 2 areas the Knicks should in particular focus on.
+
+* To understand what net efficiency, defensive efficiency and offensive efficiency mean:
+
+https://basketballnoise.com/how-to-calculate-defensive-efficiency/
+https://bashabearsbasketball.com/what-is-net-efficiency-in-basketball/#:~:text=The%20formula%20for%20net%20efficiency,can%20be%20positive%20or%20negative.
+
+```{r}
+adv_cor_df %>% 
+  ggplot(aes(x = rowname, y = cor_var, fill = r)) + 
+  geom_tile() + 
+  labs(x = "variables", y = "variables") + 
+  scale_fill_gradient2(low = "#fb6767", high = "#3CB043") +
+  geom_text(aes(label = r)) + 
+  geom_segment(aes(x = 0.5,xend = 11.5,y = 11.5,yend = 11.5),colour="#FF4500", size = 1.5) + 
+  geom_segment(aes(x = 0.5,xend = 11.5,y = 10.5,yend = 10.5),colour="#FF4500", size = 1.5) +
+  geom_segment(aes(x = 0.5,xend = 0.5,y = 11.5,yend = 10.5),colour="#FF4500", size = 1.5) +
+  geom_segment(aes(x = 11.5,xend = 11.5,y = 11.5,yend = 10.5),colour="#FF4500", size = 1.5)
+```
+
+Inspiration: Maybe try create a lollipop graph showing off_rating and defensive rating each year, deviating from the mean rating of 15?
+https://r-graph-gallery.com/web-lollipop-plot-with-R-the-office.html
+
+
+Conclusion: It's no secret that we need to work on both. In particular, 
+an area of focus should be on our offensive efficiency as we're still trending in the low 20's in terms of offensive rank
+prior to 2022, our best season in this stretch in terms of wins. Defensive efficiency needs work but as of late
+after hiring a Defensive Minded coach in Tom Thibeadau in 2020, our Defense has been one of the best in the league. Small
+dropoff in 2022 but our significant improvement to one of the best offenses in the league in 2022 helped to counter that,
+achieving our best season in this 10 year stretch. 
+
+* One area of improvement going forward is that we need to keep the momentum up. Historically, we've been better at defence
+as so focus on maintaining our offense, and our defence will be at least close to leave average or better from past few years experience.
+
+
+```{r}
+team_metrics$year <- as.character(team_metrics$year)
+
+offset <- 15
+
+tmp <- team_metrics %>% 
+  filter(team_name == "New York Knicks") %>% 
+  select(year, e_off_rating_rank, e_def_rating_rank) %>% 
+  mutate(e_off_rating_rank = e_off_rating_rank - offset,
+         e_def_rating_rank = e_def_rating_rank - offset)
+
+tmp %>% 
+  ggplot(aes(x = year, y = e_off_rating_rank)) + 
+  geom_col(aes(fill = e_off_rating_rank<0), position = "dodge", col = "transparent") + 
+  scale_y_continuous(labels = function (x) x + offset) +
+  theme_classic() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 15)) +
+  geom_segment(x = 0.55, xend = 10.45, y = 0, yend = 0) +
+  labs(title = "Knicks offensive efficiency rank against league average",
+       y = "offensive efficiency rank")
+
+tmp %>% 
+  ggplot(aes(x = year, y = e_def_rating_rank)) + 
+  geom_col(aes(fill = e_def_rating_rank<0), position = "dodge", col = "transparent") + 
+  scale_y_continuous(labels = function (x) x + offset) +
+  theme_classic() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 15)) +
+  geom_segment(x = 0.55, xend = 10.45, y = 0, yend = 0) +
+  labs(title = "Knicks defensive efficiency rank against league average",
+       y = "defensive efficiency rank")
+```
+
+
+
+
+
+Might just cut this part out.
+# Analysis 5: Impacts of poor drafting by the New York Knicks.
 
 Every year, NBA teams are given draft picks to select the best players coming out of college, or playing internationally that have
 never entered the NBA draft before (i.e. usually young players around 18-22). These are pivotal selections that can change the trajectory
