@@ -3,8 +3,10 @@ title: "Exploring The Failures of The New York Knicks"
 author: "Daniel Liu"
 date: "27/06/2023"
 output: 
-  html_document: 
+  pdf_document:
     fig_caption: yes
+    extra_dependencies: ["float"]
+always_allow_html: true
 ---
 
 ```{r setup, warning=FALSE, error=FALSE, message=FALSE, include=FALSE}
@@ -21,30 +23,29 @@ library(rvest)
 library(janitor)
 library(data.table)
 library(rstatix)
+webshot::install_phantomjs()
+options(dplyr.summarise.inform = FALSE)      # suppress any summary info from grouping
 ```
 
 # Introduction
 
-As a "junior data analyst" working in the basketball analytics team for Hudl, a sports analytics company specializing in improving team performance, I am tasked with gaining insight into why the New York Knicks have disappointed over the past decade in the NBA. The insights I uncover will help uncover key areas of improvement which will hopefully provide insight into how to win more games. I will approach this task through the [https://www.geeksforgeeks.org/six-steps-of-data-analysis-process/](Six Steps of Data Analysis Process).
+As an avid New York Knicks fan, I will gain further insight into why the New York Knicks have disappointed over the past decade in the NBA. The insights I uncover will help uncover key areas of improvement which will hopefully guide the Knicks to winning more games. I will approach this task through the [Six Steps of Data Analysis Process](https://www.geeksforgeeks.org/six-steps-of-data-analysis-process/).
 
-# Ask
+# Questions of Interest
 
-In this stage, I consider questions that might offer insights into the Knicks failures from 2013-2022.
-
-### Questions of Interest
 1. How has the rise in popularity of the 3 point shot impacted the Knicks?
 2. What other key statistical areas of improvement are important?
 3. Does the team salary play a role in the success of a team?
-4. What players should the Knicks focus on drafting for greater success?
 
-# Prepare 
+# Preparing data
 
 I pulled data from a multitude of sources in conducting my analysis.
-* Firstly, [https://www.kaggle.com/datasets/wyattowalsh/basketball](NBA Database) is a dataset containing statistics on all 30 NBA teams, 4800+ NBA players and 60,000+ NBA games throughout history.
-* Secondly, [https://github.com/swar/nba_api](NBA API) is an API I used to obtain data on individual NBA team statistics as opposed to having to wrangle the Kaggle datasets. 
-* Finally, [https://www.kaggle.com/datasets/jarosawjaworski/current-nba-players-contracts-history](NBA Salaries) is a dataset containing NBA player salaries between 2010-2020. As this analysis is conducted up until 2022, I scraped data from [https://www.spotrac.com/nba/cap/2022/](spotrac) to obtain NBA team salaries between 2021-2022.  
 
-***
+1. [NBA Database](https://www.kaggle.com/datasets/wyattowalsh/basketball) is a dataset containing statistics on all 30 NBA teams, 4800+ NBA players and 60,000+ NBA games throughout history.
+2. [NBA API](https://github.com/swar/nba_api) is an API I used to obtain data on NBA team statistics as opposed to having to wrangle the Kaggle datasets. 
+3. [NBA Salaries](https://www.kaggle.com/datasets/jarosawjaworski/current-nba-players-contracts-history) is a dataset containing NBA player salaries between 2010-2020. As this analysis is conducted up until 2022, I scraped data from [spotrac](https://www.spotrac.com/nba/cap/2022/) to obtain NBA team salaries between 2021-2022.  
+
+\noindent\rule{16.6cm}{0.4pt}
 
 ### Extracting data using nba_api in Python:
 
@@ -60,10 +61,11 @@ from nba_api.stats.static import teams
 from nba_api.stats.static import players
 ```
 
-Obtaining advanced metrics for all teams 2013 onwards:  
+Obtaining advanced metrics for all teams 2013 on wards:  
 
 ```{python eval = F}
-seasons = ['2013-14', '2014-15', '2015-16', '2016-17', '2017-18', '2018-19', '2019-20', '2020-21', '2021-22', '2022-23']
+seasons = ['2013-14', '2014-15', '2015-16', '2016-17', '2017-18', '2018-19', '2019-20',
+'2020-21', '2021-22', '2022-23']
 team_metrics = []
 for season in seasons:
     tmp = teamestimatedmetrics.TeamEstimatedMetrics(season = season).get_data_frames()[0]
@@ -73,16 +75,16 @@ team_metrics = pd.concat(team_metrics, ignore_index = True)
 team_metrics.to_csv("team_metrics.csv", index = False)
 ```
 
+Obtaining basic team statistics from 2013-2022 
+
 ```{python eval = F}
-# Gets stats for a single team
 def get_team_stats(individual_team_id: int):
-    all_df = teamyearbyyearstats.TeamYearByYearStats(team_id = individual_team_id, timeout = 10).get_data_frames()[0]
+    all_df = teamyearbyyearstats.TeamYearByYearStats(team_id = individual_team_id).get_data_frames()[0]
     all_df = all_df.tail(10)
     all_df["YEAR"] = all_df["YEAR"].apply(lambda year: year[:4])
     return all_df
 ```
 
-Obtaining basic team statistics from 2013-2022  
 ```{python eval = F}
 team_data = []
 for team_id in team_ids:
@@ -93,37 +95,49 @@ all_team_df.to_csv("all_team_stats.csv", index = True)
 ```
 
 Obtaining New York Knicks team stats from 2013-2022   
+
 ```{python eval = F}
-NYK_stats_df = teamyearbyyearstats.TeamYearByYearStats(team_id = 1610612752, timeout = 10).get_data_frames()[0].tail(10)
+NYK_stats_df = teamyearbyyearstats.TeamYearByYearStats(team_id = 1610612752)
+NYK_stats_df = NYK_stats_df.get_data_frames()[0].tail(10)
 NYK_stats_df["YEAR"] = NYK_stats_df["YEAR"].apply(lambda year: year[:4])
 NYK_stats_df.to_csv("nyk_team_stats.csv", index = True)
 ```
 
-***
+\noindent\rule{16.6cm}{0.4pt}
 
 ### Importing required files
 
 ```{r results='hide'}
-draft_history_df <- read_csv(here::here("nba_data", "draft_history.csv"))
-game_info_df <- read_csv(here::here("nba_data", "game_info.csv"))
-game_df <- read_csv(here::here("nba_data", "game.csv"))
-common_player_info_df <- read_csv(here::here("nba_data", "common_player_info.csv"))
-team_df <- read_csv(here::here("nba_data", "team.csv"))
-player_info <- read_csv(here::here("nba_data", "all_seasons.csv"))
-salaries <- read_csv(here::here("nba_data", "nba_salaries.csv"))
-play_by_play_df <- read_csv(here::here("nba_data", "play_by_play.csv"))
+game_df <- read_csv(here::here("nba_data", "game.csv"),
+                    show_col_types = F)
+salaries <- read_csv(here::here("nba_data", "nba_salaries.csv"),
+                     show_col_types = F)
+play_by_play_df <- read_csv(here::here("nba_data", "play_by_play.csv"),
+                            show_col_types = F)
 ```
 
 ```{r}
-all_team_stats <- read_csv(here::here("nba_data", "all_team_stats.csv"))
-nyk_team_stats <- read_csv(here::here("nba_data", "nyk_team_stats.csv"))
-team_metrics <- read_csv(here::here("nba_data", "team_metrics.csv"))
+all_team_stats <- read_csv(here::here("nba_data", "all_team_stats.csv"),
+                           show_col_types = F)
+nyk_team_stats <- read_csv(here::here("nba_data", "nyk_team_stats.csv"),
+                           show_col_types = F)
+team_metrics <- read_csv(here::here("nba_data", "team_metrics.csv"),
+                         show_col_types = F)
 ```
-
 
 # Process
 
-I clean the column names of data frames from NBA API:
+In this section, I process and add to existing dataframes to make it suitable for this analysis by:
+
+* Making the NBA API data frames a consistent format with all other data frames.
+* Manipulating formatting of team salaries and performing web scraping to retrieve up to date data.
+* Filtering data to be within the analysis period (2013-2022).
+* Initialize useful data frames for the future.
+
+\noindent\rule{16.6cm}{0.4pt}
+
+
+Cleaning column names from NBA API csv's
 
 ```{r results='hide'}
 all_team_stats <- clean_names(all_team_stats)
@@ -131,13 +145,13 @@ nyk_team_stats <- clean_names(nyk_team_stats)
 team_metrics <- clean_names(team_metrics)
 ```
 
-I noticed there were 31 NBA teams as opposed to 30
+I noticed there were 31 NBA teams as opposed to 30 in the all_teams_stats data frame
 
 ```{r}
 length(unique(all_team_stats$team_name))
 ```
 
-This likely means a team changed their name throughout this period. To find this team, identify those teams that hadn't played the whole ten seasons under one name.
+This likely means a team changed their name throughout this period. To find this team, I must identify teams that hadn't played the whole ten seasons under one name
 
 ```{r}
 all_team_stats %>% 
@@ -146,7 +160,7 @@ all_team_stats %>%
   filter(n != 10)
 ```
 
-As the Charlotte Bobcats became the Hornets in 2013 (i.e. team name change), I needed to change the Bobcats name to the Hornets.
+As the Charlotte Bobcats became the Hornets in 2013 (i.e. team name change), I need to change the Bobcats name to the Hornets.
 
 ```{r results='hide'}
 all_team_stats <- all_team_stats %>% 
@@ -156,19 +170,23 @@ team_metrics <- team_metrics %>%
   mutate(team_name = recode(team_name, "Charlotte Bobcats" = "Charlotte Hornets"))
 ```
 
-I combine individual player salaries into 30 NBA team salaries to keep the analysis on teams, not individual players.
+
+
+
+I combine individual player salaries into 30 NBA team salaries to keep the analysis on teams, not individual players
 
 ```{r results='hide'}
 salaries <- salaries %>% 
   select(team, salary, season) %>% 
   filter(season >= 2013) %>% 
-  filter(!(team %in% c("Fenerbahce Ulker Fenerbahce Ulker", "Maccabi Haifa Maccabi Haifa", "null Unknown",
-                       "Madrid Real Madrid", "Charlotte Bobcats", "New Orleans Hornets"))) %>% 
+  filter(!(team %in% c("Fenerbahce Ulker Fenerbahce Ulker", "Maccabi Haifa Maccabi Haifa",
+                       "null Unknown", "Madrid Real Madrid", "Charlotte Bobcats",
+                       "New Orleans Hornets"))) %>% 
   group_by(team, season) %>% 
   summarize(salary = sum(salary))
 ```
 
-Next, I perform web-scraping to get 2021 and 2022 NBA salary data.
+Next, I perform web-scraping to get 2021 and 2022 NBA salary data
 
 ```{r results='hide'}
 scrape_salaries <- function(html_link, year){
@@ -197,20 +215,14 @@ salaries <- scrape_salaries("https://www.spotrac.com/nba/cap/2022/", 2022)
 salaries <- scrape_salaries("https://www.spotrac.com/nba/cap/2021/", 2021)
 ```
 
-As the analysis is conducted between 2013-2022, I filter for data from 29/10/2013 (start of 2013 NBA season) till present.
+As the analysis is conducted between 2013-2022, I filter for data from 29/10/2013 (start of 2013 NBA season) till present
 
-```{r results='hide'}
+```{r results='hide', message=FALSE}
 game_df$game_date <- as.Date(game_df$game_date)
 game_df$season_id <- as.character(game_df$season_id)
 game_df <- game_df %>%
   filter(game_date > "2013-10-29") %>% 
   mutate(year = substring(season_id, 2))
-
-game_info_df$game_date <- as.Date(game_info_df$game_date)
-game_info_df <- game_info_df %>% 
-  na.omit() %>% 
-  mutate(year = year(game_date)) %>% 
-    filter(game_date > "2013-10-29")
 
 play_by_play_df <- game_df %>% 
   select(game_id, game_date) %>% 
@@ -222,24 +234,26 @@ Preparing data frame on each NBA team and their wins, losses and win percentage 
 
 ```{r}
 team_wins_df <- all_team_stats %>% 
-  select(team_id, team_name, year, gp, wins, losses, win_pct) %>% 
-  mutate(win_pct = win_pct * 100) %>% 
+  select(team_id, team_city, team_name, year, gp, wins, losses, win_pct) %>% 
+  mutate(win_pct = win_pct * 100,
+         team_city = paste(team_city, team_name, sep = " ")) %>%
+  rename("full_name" = "team_city") %>% 
   arrange(year)
 
-knitr::kable(head(team_wins_df, 6))
+knitr::kable(head(team_wins_df, 6), booktabs = T,
+             caption = "Dataframe of NBA teams with their wins and lossess (2013-2022)")
 ```
 
+# Analyze:
 
-# Analyze: 
+In this section, I will demonstrate the shortcomings of the Knicks over the past decade and identify key areas of improvement going forth.
 
-Please note that team abbreviations will be used in some data frames and visualizations. A list of team abbreviations and their full names can be found [https://en.wikipedia.org/wiki/Wikipedia:WikiProject_National_Basketball_Association/National_Basketball_Association_team_abbreviations](here).
-
-***
+\noindent\rule{16.6cm}{0.4pt}
 
 ### A disappointing decade
 
-When you ask any NBA fan to name the worst teams from the past decade, chances are the Knicks will be named. It's not hard to see why considering the Knicks rank third last in win percentage, winning less than 40% of their games.
-```{r}
+When you ask any NBA fan to name the worst teams from the past decade, chances are the Knicks will be named. It's not hard to see why considering the Knicks rank third last in win percentage over the past decade, winning less than 40% of their games.
+```{r fig.cap = "Average team win % (2013-2022)"}
 team_wins_df %>% 
   mutate(ToHighlight = ifelse(team_name == "Knicks", "yes", "no")) %>% 
   group_by(team_name, ToHighlight) %>% 
@@ -248,7 +262,7 @@ team_wins_df %>%
              y = avg_win_pct,
              fill = ToHighlight)) +
   geom_col() + 
-  labs(title = "Win percentage of each NBA team (2013-2022)",
+  labs(title = "Win percentage of each NBA team",
        x = "team",
        y = "win percentage") + 
   coord_flip() + 
@@ -257,10 +271,11 @@ team_wins_df %>%
   theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 23))
 ```
 
-Not only are the Knicks failing to win, but they're playing less than inspiring basketball. Seen in the table, 80% of words containing sentiment were "negative". These negative words such as "miss", "bad" and "terrible" describe the overall mood when commentators react to the New York Knicks play basketball.
-```{r}
+Not only are the Knicks failing to win, but they're playing less than inspiring basketball. 80% of words containing sentiment used by commentators when reacting to Knicks games were negative words such as "miss", "bad" and "terrible".
+```{r message=FALSE}
 knitr::kable(play_by_play_df %>% 
-  filter(player1_team_abbreviation == "NYK" | player2_team_abbreviation == "NYK" | player3_team_abbreviation == "NYK") %>% 
+  filter(player1_team_abbreviation == "NYK" | player2_team_abbreviation == "NYK" |
+           player3_team_abbreviation == "NYK") %>% 
   select(game_id, homedescription) %>% 
   na.omit() %>% 
   unnest_tokens(
@@ -271,11 +286,12 @@ knitr::kable(play_by_play_df %>%
   anti_join(get_stopwords()) %>% 
   inner_join(get_sentiments("bing")) %>% 
   count(sentiment) %>% 
-  mutate(proportion = n / sum(n)))
+  mutate(proportion = n / sum(n)), booktabs = T,
+  caption = "Knicks sentiment amongst commentators (2013-2022)")
 ```
 
-Compare this to a league average of 75%, and you find that the Knicks are below average yet again.
-```{r}
+Compare this to a league average of 75% between 2013-2022 and you find that the Knicks are exciting with their style of play
+```{r message=FALSE}
 knitr::kable(play_by_play_df %>% 
   select(game_id, homedescription) %>% 
   na.omit() %>% 
@@ -287,23 +303,24 @@ knitr::kable(play_by_play_df %>%
   anti_join(get_stopwords()) %>% 
   inner_join(get_sentiments("bing")) %>% 
   count(sentiment) %>% 
-  mutate(proportion = n / sum(n)))
+  mutate(proportion = n / sum(n)), booktabs = T,
+  caption = "League wide sentiment amongst commentators (2013-2022)")
 ```
 
-The average NBA fan could have already predicted these results and so the question to be asked is what can be done now and in the future to bring the Knicks glory over the next decade?
+The average NBA fan could have already predicted these results and so the question that should be asked is what can be done now and in the future to bring the Knicks glory over the next decade?
+
 
 ### The key is the three
 
-The tiles highlighted by the red box in the correlation matrix show the correlation between traditional NBA statistical measures with win percentage. On the surface, one might think that points would yield the highest correlation with winning as the point of basketball is to score more points than your opponents.  
+The tiles highlighted by the red box in the correlation matrix show the correlation of common NBA statistics with win percentage. On the surface, one might think that points would yield the highest correlation with winning seeing as the goal of basketball is to score more points than your opponents.
+
 
 Interestingly, the 3 point shot has the greatest correlation with winning at 0.58 among traditional NBA statistics
-```{r}
-basic_stats_cor <- all_team_stats %>% 
+```{r fig.cap = "Correlation matrix of common NBA statistics", message=FALSE, warning=FALSE}
+all_team_stats %>% 
   select(win_pct, fg3_pct, reb, ast, stl, tov, blk, pts) %>% 
   cor_mat() %>% 
-  gather(-rowname, key = cor_var, value = r)
-
-basic_stats_cor %>% 
+  gather(-rowname, key = cor_var, value = r) %>% 
   ggplot(aes(x = rowname, y = cor_var, fill = r)) + 
   geom_tile() + 
   labs(x = "variables", y = "variables") + 
@@ -316,31 +333,36 @@ basic_stats_cor %>%
 ```
 
 
-The following plot considers all 30 NBA teams for the ten seasons between 2013-2022 and their average 3 point percentage each season against their win percentage.  
-
-It's clear that a moderate positive correlation is displayed, suggesting the greater your teams 3 point percentage, the more likely your team will achieve a greater win percentage.
-```{r}
+It's clear that a moderate positive correlation exists between win percentage and 3 point percentage, suggesting that the better a teams 3 point percentage, the more likely that team will achieve a greater win percentage.
+```{r fig.cap = "Season 3 point percentage against win percentage for 30 NBA teams (2013-2022)", message=FALSE}
 fg3_corr <- substr(as.character(cor(all_team_stats$win_pct, all_team_stats$fg3_pct)), start = 0, stop = 5)
 all_team_stats %>% 
   ggplot(aes(x = fg3_pct, y = win_pct)) + 
-  geom_point(color = "#ff48a5") + 
+  geom_point(color = "#F8766D") +
   labs(title = "Effect of 3 Point % on Winning",
-       x = "3 Point Percentage",
+       x = "Three Point Percentage",
        y = "Win Percentage") +
-  geom_smooth(method = "lm", se = FALSE, color = "#89ABE3") +
-  annotate(geom = "text", label = paste("r = ", fg3_corr), color = "#ff48a5", x = 0.33, y = 0.82, size = 6) +
+  geom_smooth(method = "lm", se = FALSE, color = "#00BFC4") +
+  annotate(geom = "text", label = paste("r = ", fg3_corr), color = "black", x = 0.33, y = 0.82, size = 6) +
   theme_classic() +
   theme(plot.title = element_text(hjust = 0.5, size = 23))
 ```
 
 With the above demonstrating how crucial 3 point percentage is in modern basketball, how have the Knicks performed in this key statistic?
 
-Comparing the Knicks 3 point percentage against league average, it can be seen that aside from two significant anomalies, the Knicks have been a below average 3 point shooting team throughout the period 2013-2022.  
 
-Only 16 of the 30 NBA teams will make the "playoffs" to compete for the championship. When considering the importance of being atleast league average in terms of wins to make the playoffs and the significance of the 3 point percentage on winning, the Knicks have clearly not placed enough of an emphasis on efficient 3 point shooting throughout 2013-2022.
+Aside from two significant anomalies, the Knicks have been a below average 3 point shooting team throughout the period 2013-2022.
 
-```{r}
-p1 <- all_team_stats %>% 
+
+Only 16 of the 30 NBA teams will make the "playoffs" to compete for the championship. When considering the importance of being at-least league average in terms of wins to make the playoffs and the significance of the 3 point percentage on winning, the Knicks have clearly not placed enough of an emphasis on efficient 3 point shooting 2013-2022.
+```{r eval=F, echo=F}
+all_team_stats$year <- as.character(all_team_stats$year)
+nyk_team_stats$year <- as.character(nyk_team_stats$year)
+```
+
+
+```{r fig.cap="New York Knicks against league average 3 point percentage", message=FALSE}
+all_team_stats %>% 
   group_by(year) %>% 
   summarise(league_3p_pct = mean(fg3_pct)) %>% 
   left_join(nyk_team_stats, by = "year") %>% 
@@ -351,19 +373,19 @@ p1 <- all_team_stats %>%
   geom_line() + 
   geom_point() +
   theme_classic() + 
-  labs(title = "Knicks 3P% Against League Average",
+  labs(title = "Change in 3 point percentage over time",
        x = "Year",
        y = "3 Point Percentage") +
   theme(plot.title = element_text(hjust = 0.5, size = 19))
-
-ggplotly(p = p1)
 ```
 
-Not only have the Knicks shot poorly from three over the past decade, but we also will usually attempt less threes compared to league average.  
-As observed in the plot, the largest difference between the Knicks attempted threes against league average was in 2019. In 2019, the Knicks shot 600 less threes than league average and only won 31.8% of their games that season. 
+Not only have the Knicks shot poorly from three over the past decade, but they also attempt less threes compared to league average. 
 
-```{r}
-p2 <- all_team_stats %>% 
+
+The largest difference between the Knicks attempted threes against league average was in 2019. In 2019, the Knicks shot 600 less threes than league average and only won 31.8% of their games that season, indicating the importance of shooting more threes and with greater efficiency.
+
+```{r fig.cap="New York Knicks against league average 3 point attempts", message=FALSE}
+all_team_stats %>% 
   group_by(year) %>% 
   summarise(league_3s_attempted = mean(fg3a)) %>% 
   left_join(nyk_team_stats, by = "year") %>% 
@@ -374,57 +396,60 @@ p2 <- all_team_stats %>%
   geom_line() + 
   geom_point() +
   theme_classic() + 
-  labs(title = "Knicks 3 Pointers Attempted Against League Average",
+  labs(title = "Change in 3 point attempts over time",
        x = "Year",
        y = "3 Pointers attempted") +
   theme(plot.title = element_text(hjust = 0.5, size = 19))
-
-ggplotly(p = p2)
 ```
 
-One encouraging sign is that for the past few seasons, the Knicks have been trending at or above league average in terms of three point efficiency, perhaps explaining an above 50 win percentage from 2020 onwards.
+One encouraging sign I observed from fig 4 is that over the past few seasons, the Knicks have been trending at or above league average in terms of three point efficiency, perhaps explaining an above 50 win percentage from 2020 onwards.
+
 ```{r}
 tail(nyk_team_stats, 3) %>% 
   summarise(win_pct = sum(wins) / sum(gp) * 100)
 ```
 
-I recognize that 3 pointers are only one part of the game, but with how integral it is to the modern NBA and how widely analysed it is considering one of the common NBA statistics, the Knicks ought to place greater emphasis on shooting the three ball with greater efficiency.
+I recognize that 3 pointers are only one part of the game, but with how integral it is to the modern NBA, the Knicks ought to place greater emphasis on shooting the three ball more efficiency. This might occur through free agency signings, drafting players or training our current players to improve our three ball efficiency.
 
 
-### Net rating and its impact on the Knicks ranking
+### Prioritize defence or offense?
 
-Net rating/efficiency is a formula that measures how efficient a team is on both offense and defense. Offensive net rating measures how many points a team allows per 100 possessions meaning given the opponent the ball 100 times, how many points are they likely to score? The principle applies with defensive net rating.  
+Net rating/efficiency is a formula that measures how efficient a team is on both offense and defense. Offensive net rating measures how many points a team allows per 100 possessions. Given the opponent the ball 100 times, how many points are they likely to score? The same principle applies with defensive net rating.  
 
-When exploring advanced statistics, a 0.96 correlation between winning percentage and net efficiency stands out. This should come as no surprise that the more you score and less your opponents score per 100 possessions, you better a chance you have at winning more games over the course of an 82 game NBA season. What's more interesting is whether defense or offensive are more important to know which to prioritise when considering different players.
 
-There is a moderate correlation of 0.62 between winning percentage and offensive efficiency rating and a moderate correlation of -0.52 between winning percentage and defensive efficiency rating. It's interesting to note that a teams offensive capabilities are more linked with success as compared to defense.
+When exploring advanced NBA statistics, a 0.96 correlation between winning percentage and net efficiency stands out. This should come as no surprise because the more you score and less your opponents score per 100 possessions, the better a chance you have at winning more games over the course of an 82 game NBA season. What is more interesting is whether defense or offensive is more important as we might like to know which is more of a priority when considering signing or drafting different players.
 
 ```{r results='hide'}
 adv_cor_df <- team_metrics %>% 
-  select(w_pct:e_tm_tov_pct) %>% 
+  select(w_pct, e_pace, e_reb_pct, e_oreb_pct, e_off_rating, e_net_rating,
+         e_def_rating, e_tm_tov_pct, e_ast_ratio) %>% 
   cor_mat() %>% 
   gather(-rowname, key = cor_var, value = r)
 ```
 
-```{r}
+There is a moderate correlation of 0.62 between winning percentage and offensive efficiency rating and a moderate correlation of -0.52 between winning percentage and defensive efficiency rating. It's interesting to note that a teams offensive capabilities are slightly more linked with success compared to defense.
+
+```{r fig.cap="Correlation matrix of advanced NBA statistics"}
 adv_cor_df %>% 
   ggplot(aes(x = rowname, y = cor_var, fill = r)) + 
   geom_tile() + 
   labs(x = "variables", y = "variables") + 
   scale_fill_gradient2(low = "#fb6767", high = "#3CB043") +
   geom_text(aes(label = r)) + 
-  geom_segment(aes(x = 0.5,xend = 11.5,y = 11.5,yend = 11.5),colour="#FF4500", size = 1.5) + 
-  geom_segment(aes(x = 0.5,xend = 11.5,y = 10.5,yend = 10.5),colour="#FF4500", size = 1.5) +
-  geom_segment(aes(x = 0.5,xend = 0.5,y = 11.5,yend = 10.5),colour="#FF4500", size = 1.5) +
-  geom_segment(aes(x = 11.5,xend = 11.5,y = 11.5,yend = 10.5),colour="#FF4500", size = 1.5)
+  geom_segment(aes(x = 0.5,xend = 9.5,y = 9.5,yend = 9.5),colour="#FF4500", size=1.5)+ 
+  geom_segment(aes(x = 0.5,xend = 9.5,y = 8.5,yend = 8.5),colour="#FF4500", size=1.5)+
+  geom_segment(aes(x = 0.5,xend = 0.5,y = 9.5,yend = 8.5),colour="#FF4500", size=1.5)+
+  geom_segment(aes(x = 9.5,xend = 9.5,y = 9.5,yend = 8.5),colour="#FF4500", size=1.5)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-The two plots demonstrate how the Knicks have performed in terms of their offensive and defensive efficiency ranking, with a league average rank being 15 out of 30 teams. There are a few key observations to make:
 
-* There is a plethora of red bars, with each graph having 8 red bars and only 2 blue bars. This means that in 8 out of the 10 seasons, the Knicks placed below league average in both offensive and defensive efficiency. Considering the relatively high correlation between winning and efficiency statistics, this could help in explaining the Knicks poor performance between 2013-2022.
-* In no singular season have the Knicks been an above average team in both offensive and defensive efficiency. It appears there's a trade off between offense and defense, perhaps explained by the difficulty in finding elite players who can excel in both facets of basketball.
+From the two plots below in fig 7 a few key observation can be made:
 
-```{r}
+* In 8 out of 10 seasons, the Knicks placed below league average in both offensive and defensive efficiency. Considering the relatively high correlation between winning and efficiency statistics, this could help in explaining the Knicks poor performance between 2013-2022.
+* In no singular season have the Knicks been an above average team in both offensive and defensive efficiency. There might be a trade off between offense and defense, perhaps explained by the difficulty in finding elite players who can excel in both facets of basketball.
+
+```{r echo=F}
 team_metrics$year <- as.character(team_metrics$year)
 
 offset <- 15
@@ -434,7 +459,9 @@ eff_rank_metrics <- team_metrics %>%
   select(year, e_off_rating_rank, e_def_rating_rank) %>% 
   mutate(e_off_rating_rank = e_off_rating_rank - offset,
          e_def_rating_rank = e_def_rating_rank - offset)
+```
 
+```{r fig.cap = "Knicks offensive and defensive efficiency ranking compared to league average of 15"}
 plot1 <- eff_rank_metrics %>% 
   ggplot(aes(x = year, y = e_off_rating_rank)) + 
   geom_col(aes(fill = e_off_rating_rank<0), position = "dodge", col = "transparent") + 
@@ -458,380 +485,100 @@ plot2 <- eff_rank_metrics %>%
 plot_grid(plot1, plot2, nrow = 2)
 ```
 
-On the point of trade-offs, I would advise the Knicks to not necessarily give up one for the other but try to maximize their efficiency in total. Both play a significant role in improving win percentage as the table shows that a reduction in defensive rank from 2020 to 2021 lead to a reduction in win percentage, holding offensive rank constant. Also, a significant improvement in offensive rank with a smaller reduction in defensive rank lead to an improvement in win percentage from 2021 to 2022.  
+On the point of trade-offs, I would advise the Knicks to not give up one for the other but try to maximize their efficiency in total. As difficult as that sounds, both play a significant role in improving win percentage.
 
-The reduction in defensive rank leading to a lower winning percentage and improvement in offensive rank leading to greater wins demonstrate the importance of improving a team overall, and not ignoring one area for another.
+* The knicks saw a reduction in defensive ranking between 2020-2021, holding offensive ranking constant leading to a reduction in win percentage
+* The knicks saw a significant improvement in offensive ranking between 2021-2022, with a smaller drop in defensive ranking, leading to an improvement in win percentage.
 
-```{r}
+The above two points demonstrate just how vital having a good ranking in both categories is to win percentage.
+
+```{r message=FALSE}
 nyk_team_stats$year <- as.character(nyk_team_stats$year)
 knitr::kable(nyk_team_stats %>% 
   tail(3) %>% 
   left_join(eff_rank_metrics) %>% 
   select(year, win_pct, e_off_rating_rank, e_def_rating_rank) %>% 
   mutate(e_off_rating_rank = e_off_rating_rank + 15,
-         e_def_rating_rank = e_def_rating_rank + 15))
+         e_def_rating_rank = e_def_rating_rank + 15), booktabs = T,
+  caption = "Effects of changing efficiency ranking on win percentage")
 ```
 
+### Has the Knicks payroll hindered winning?
+
+A common consensus in sports is that the more you spend, the better your team performs.  
 
 
-# Analysis 3: Checking salary of the Knicks players:
+```{r echo = F}
+salary_and_wins <- salaries %>% 
+  left_join(team_wins_df, by = c("team" = "full_name", "season" = "year"))  
 
-```{r}
+knicks_salary_and_wins <- salary_and_wins %>% 
+  filter(team == "New York Knicks")
+```
+
+Despite its validity in practically every sport, there is no pattern to validate that claim for the 30 NBA teams over the 10 seasons played between 2013-2022. Furthermore, the red dots, each of which indicate a salary and win percentage for one of the New York Knicks 10 seasons between 2013-2022 demonstrates no visible relationship either.
+
+```{r fig.cap = "Team salary vs win percentage (2013-2022)", message=FALSE}
+salary_and_wins %>% 
+  ggplot(aes(x = salary/1000000, y = win_pct)) + 
+  geom_point() +
+  geom_point(data = knicks_salary_and_wins, aes(x = salary/1000000, y = win_pct),
+             color = "red", size = 5, pch = 4) + 
+  geom_point(data = knicks_salary_and_wins, aes(x = salary/1000000, y = win_pct),
+             color = "red") +
+  labs(title = "Team salary against win percentage",
+       x = "Team Salary (millions of $)",
+       y = "Win Percentage") +
+  theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5, size = 23))
+```
+
+Rather than focusing on how total monetary spending directly relates to win percentage, we can look into how the Knicks team salary has compared to league average between 2013-2022 and its impact on winning.
+
+```{r echo=FALSE}
 league_salaries <- salaries %>% 
   group_by(season) %>% 
-  summarise(league_salary = (sum(salary)/30) / 1000000)
+  summarise(league_avg_salary = (sum(salary)/30) / 1000000)
 
 knicks_salaries <- salaries %>% 
   filter(team == "New York Knicks") %>% 
   group_by(season) %>% 
   summarise(knicks_salary = sum(salary)/ 1000000)
+```
 
+The data shows that the Knicks have slowly reduced their team salary relative to league average between 2013-2022. Honing in on 2019-2022, the Knicks were well below league average in terms of spending and this was their best period in terms of winning, winning 47.8% of games compared to just 33.1% from 2012-2018.
+
+```{r fig.cap = "Change in team salary (2013-2022)", message=FALSE}
 league_salaries %>% 
   left_join(knicks_salaries) %>% 
   reshape2::melt(id.var = "season", variable.name = "Team") %>% 
-  ggplot(aes(x = as.factor(season), y = value, fill = Team)) + 
-  geom_col(position = "dodge", color = "black") +
+  ggplot(aes(x = as.factor(season), y = value)) + 
+  geom_bar(aes(fill = Team), position = "dodge", color = "black", stat = "identity") +
   theme_classic() + 
-  labs(title = "Knicks Total Salary Against League Average Total Salary",
+  labs(title = "Knicks change in salary against league average",
        x = "Year",
-       y = "Salary (in millions of dollars)")
+       y = "Salary (in millions of dollars)") +
+  scale_y_continuous(expand = expansion(mult = 0)) +
+  theme(plot.title = element_text(hjust = 0.5, size = 19))
 ```
-
-The above plot shows me how the Knicks haven't been outrivaled by other NBA teams in terms of spending. Infact, we've been quite close
-to league average and even surpassed it significantly in 2013/2014. It's only been in the past 4 years where the Knicks have started to see lower and lower salaries.
 
 ```{r}
-all_team_stats <- all_team_stats %>% 
-  mutate(team = paste(team_city, team_name, sep = " "),
-         team = recode(team, "Los Angeles Clippers" = "LA Clippers")) %>% 
-  rename("season" = "year")
-
-salaries$season = as.numeric(salaries$season)
-
-salary_vs_wins <- salaries %>% 
-  left_join(all_team_stats, by = c("team", "season")) %>% 
-  select(team, season, salary, win_pct)
+knitr::kable(summarise(head(select(nyk_team_stats, year, win_pct), 6),
+                       win_pct = mean(win_pct)), booktabs = T, caption = "Knicks win percentage (2012-2018)")
+knitr::kable(summarise(tail(select(nyk_team_stats, year, win_pct), 4),
+                       win_pct = mean(win_pct)), booktabs = T, caption = "Knicks win percentage (2019-2022)")
 ```
 
-Clearly, salary is not correlated with winning (i.e. Spending more money in the NBA doesn't necessarily mean you're better).
+This salary analysis suggests that by keeping team salary below league average, the Knicks have tended to perform better. This could be for a multitude of reasons including:
 
-```{r}
-salary_vs_wins %>% 
-  ggplot(aes(salary, win_pct)) + 
-  geom_point() + 
-  labs(title = "Salary against Win Percentage",
-       x = "Total Salary of a Team",
-       y = "Win Percentage of a Team")
-```
+* **The development of young players drafted by the Knicks on low salaries**. With the emergence of RJ Barrett, Immanuel Quickley and Mitchell Robinson as reliable players for the Knicks over the past few years, the Knicks have been able to keep players on rookie contracts. A lower salary, at least in the short term for the Knicks suggests good development of young talent who contribute to winning as there's less need to spend big on veteran players.
 
+* **Better management of player contracts**. Since 2018, the Knicks have signed all-star calibre players like Julius Randle and Jalen Brunson on bargain contracts. The identification of under-valued talent has led the Knicks to allow for flexibility in trades and free agency, something the Knicks lacked between 2012-2017.
 
-**CONCLUSION**: Clearly the Knicks keep with the league trend in spending. Both seem like they're on a linear progression upwards since 2016/2017 (new CBA).
-However, ever since the 2017 CBA (Collective Bargaining Agreement), it seems the league salary has overtaken the Knicks salary.
-Perhaps this is due to the 2017 CBA introducing higher max salaries. As the Knicks haven't had a player under a max contract
-since Carmelo Anthony, who left in 2017, this could explain the Knicks trending under league average salary.
+# Act
 
-However, it can be seen that salary and the amount spent on players likely isn't a significant factor for the Knicks in terms of winning,
-nor for any team (as seen in most recently created plot and its low correlation).
-The Knicks have only performed well from 2019 onwards in this period, making the playoffs 2 out of 4 seasons,
-where as from 2013-2019, a six year period the Knicks failed to make the playoffs even once.
-From 2019 onwards, the Knicks have been significantly below league average in terms of spending.
+To conclude, I will come up with my top three recommendations that I believe will help the Knicks win in the future based on my analysis.
 
-Therefore, it can be said that better management of player contracts, allowing for flexibility in trades and free agency is key to improving the Knicks winning, not spending more.
-
-
-
-
-
-## Potential Idea: Home court advantage??? Is it real. Are the Knicks performing poorly in this?
-
-
-
-
-
-
-Might just cut this part out.
-# Analysis 5: Impacts of poor drafting by the New York Knicks.
-
-Every year, NBA teams are given draft picks to select the best players coming out of college, or playing internationally that have
-never entered the NBA draft before (i.e. usually young players around 18-22). These are pivotal selections that can change the trajectory
-of an NBA franchise as all NBA greats once were selected by an NBA team. Teams who performed poorly in terms of standings have higher selections
-than those who performed well, allowing these poor teams to attempt to draft impactful players as it's usually only those high selections
-that have servicable NBA careers.
-
-One would imagine that the New York Knicks, a franchise that is 3rd last in terms of wins since 2013 would have high draft
-picks and hence, would select the best up and coming young players. Whilst the Knicks have had high draft picks, have they been using their
-coveted high picks to select players who contribute to winning? In this section, we explore the Knicks drafting of players since 2013
-which might perhaps contribute to the Knicks failures. 
-
-Choice of statistic (i.e. to measure how well a draft pick has played in their NBA career): Net Rating: Measures a team's
-point differential per 100 persons (i.e. how many points does a player add/remove per 100 possessions)?
-Basically, how much better off is a team with the player on the court compared to without? Positive means better with them on the court. Negative
-means worse off with that player on the court.
-
-**Preparing data**
-```{r}
-player_rating <- player_info %>% 
-  select(player_name, season, net_rating) %>% 
-  group_by(player_name) %>% 
-  summarise(career_net_rating = mean(net_rating))
-
-draft_picks <- draft_history_df %>% 
-  filter(season > 2012) %>% 
-  select(person_id, player_name, season, round_number, round_pick, overall_pick, team_abbreviation, organization, organization_type) %>% 
-  mutate(organization_type = recode(organization_type, "Other Team/Club" = "International", "College/University" = "College")) %>% 
-  filter(!is.na(organization_type)) %>% 
-  left_join(player_rating, by = "player_name")
-
-player_rating
-draft_picks
-```
-
-4th Worst using 1st round picks. On average, 8th Highest pick assuming 1st round picks.
-Considered only 1st round picks because usually those players are the ones that make the difference to a franchise.
-
-Interpretation: So we're selecting very high (i.e. top 8 on average between 2013-2022) (plot 1), which 
-should lead to us selecting the better players earlier but we're using our picks poorly (26th best) in terms of avg net rating from drafted players.
-Not such great return on value huh? Why might this be the case (plot2)?
-```{r}
-p1 <- draft_picks %>% 
-  filter(organization_type == "College") %>% 
-  filter(round_number == 1) %>% 
-  group_by(team_abbreviation) %>% 
-  summarise(avg_net_rating = mean(career_net_rating, na.rm = TRUE)) %>% 
-  arrange(avg_net_rating) %>% 
-  mutate(ToHighlight = ifelse(team_abbreviation == "NYK", "yes", "no")) %>% 
-  ggplot(aes(x = reorder(team_abbreviation, avg_net_rating),
-             y = avg_net_rating,
-             fill = ToHighlight)) +
-  geom_col() + 
-  labs(title = "Avg Net Rating of 1st Round Draftees by Team (2013-2022)",
-       x = "Team",
-       y = "Average Net Rating") + 
-  coord_flip() + 
-  scale_fill_manual(values = c("yes" = "#E94B3CFF", "no" = "#2D2926FF")) + 
-  theme_classic() + 
-  theme(legend.position = "none")
-  
-
-p2 <- draft_picks %>% 
-  filter(organization_type == "College") %>% 
-  filter(round_number == 1) %>% 
-  group_by(team_abbreviation) %>% 
-  summarise(avg_pick_number = mean(overall_pick, na.rm = TRUE)) %>% 
-  arrange(avg_pick_number) %>% 
-  mutate(ToHighlight = ifelse(team_abbreviation == "NYK", "yes", "no")) %>% 
-  ggplot(aes(x = reorder(team_abbreviation, -avg_pick_number),
-             y = avg_pick_number,
-             fill = ToHighlight)) +
-  geom_col() + 
-  labs(title = "Avg 1st Round Pick Number by Team (2013-2022)",
-       x = "Team",
-       y = "Average 1st Round Pick Number") + 
-  coord_flip() + 
-  scale_fill_manual(values = c("yes" = "#E94B3CFF", "no" = "#2D2926FF")) + 
-  theme_classic() + 
-  theme(legend.position = "none")
-
-plot_grid(p2, p1)
-```
-
-As college players make up around 4/5th of total drafted players, lets dive deeper into the Knicks selections
-of college players over the past decade:
-```{r}
-draft_picks %>% 
-  count(organization_type)
-```
-
-But why is it that the Knicks are drafting worse players than the other teams when they have significantly higher picks (i.e. under performing with picks)?
-
-## Perhaps due to the colleges selected from?
-
-## NOTE: THE BELOW SECTION RELATES TO ALL TEAMS, NOT JUST THE KNICKS AND HOW TO IMPROVE DRAFTING. BUT ESPECIALLY RELEVANT
-## FOR THE KNICKS CONSIDERING THEIR POOR DRAFTING HISTORY IN THE PAST DECADE.
-
-Firstly, it must be noted that we're only considering colleges that have had 7 or more NBA draft picks in the past decade. 
-Colleges with a small number of drafted players don't have a sufficient sample size in the NBA confidently determine the
-performance of that colleges players in the NBA.
-
-**NOTE: COULD TRY TO IMPLEMENT A BETTER LOWER LIMIT SIZE OF 5 USING STATISTICS!!!**
-
-As seen, these are the top ten colleges in terms of average college net rating of drafted players in the NBA.
-If you notice anything about these colleges, they all have relatively strong reputations in the college game
-for being powerhouse basketball schools, having won a total of 35 national championships between them,
-out of a possible 61. Considering there's a possible 351 college teams, these ten colleges clearly are 
-some of the biggest out winning 57% of all national championships in history.
-```{r}
-top_ten_colleges <- draft_picks %>% 
-  filter(organization_type == "College") %>% 
-  group_by(organization) %>% 
-  mutate(n = n()) %>% 
-  filter(n >= 7) %>% 
-  summarise(avg_college_net_rating = mean(career_net_rating, na.rm = TRUE)) %>% 
-  slice_max(order_by = avg_college_net_rating, n = 10)
-
-top_ten_colleges
-```
-
-**VERY IMPORTANT NOTE TO MENTION**: THESE ARE SIMPLY ONE FACTOR THAT DETERMINES WINNING. THUS, IT'S HIGHLY UNLIKELY EITHER PLOTS HAVE A MASSIVE
-CORRELATION WITH WINNING AND THEREFORE, A 0.10 CORRELATION AND VISIBLE DIFFERENT IN PLOTS IS IMPORTANT TO ANALYSE AND NOTICE
-THE DIFFERENCE IN POTENTIALLY DRAFTING FROM POWERHOUSE COLLEGES VS INTERNATIONAL.
-
-
-Clearly, no meaningful correlation between the number of selections a team makes against their win percentage. So what part
-of the draft might actually influence a teams ability to win?
-```{r}
-team_wins_df2 <- team_wins_df %>% 
-  select(team_id, team_abbreviation, total_win_percentage)
-
-college_winning <- draft_picks %>% 
-  filter(organization %in% top_ten_colleges$organization) %>% 
-  group_by(team_abbreviation) %>% 
-  summarise(top_ten_college_selections = n()) %>% 
-  arrange(desc(top_ten_college_selections)) %>% 
-  left_join(team_wins_df2) %>% 
-  select(-team_id)
-
-correlation_college <- substr(as.character(cor(college_winning$total_win_percentage, college_winning$top_ten_college_selections)), start = 0, stop = 6)
-
-college_winning %>% 
-  ggplot(aes(x = top_ten_college_selections, y = total_win_percentage)) + 
-  geom_point() + 
-  geom_smooth(se = FALSE) + 
-  annotate(geom = "text", label = paste("correlation = ", correlation_college), color = "blue", x = 6, y = 60, size = 5) + 
-  labs(title = "Effects of Drafting International Players on Winning %",
-       x = "International Players Drafted (%)",
-       y = "Winning Percentage") + 
-  theme_classic()
-```
-
-Perhaps we could look into the effects on winning from drafting more international players?
-
-Moderate degree of negative correlation between total_win_percentage and international drafted players. It seems as if you tend to win less
-the more International players you draft.
-
-
-```{r}
-intenational_winning_df <- draft_picks %>% 
-  filter(organization_type %in% c("College", "International")) %>% 
-  count(team_abbreviation, organization_type) %>% 
-  pivot_wider(names_from = organization_type, values_from = n) %>% 
-  group_by(team_abbreviation) %>% 
-  mutate(International = ifelse(is.na(International), 0, International)) %>%             # Accounting for LAC having drafted 0 International players.
-  summarise(international_percent = International / (College + International) * 100) %>%
-  left_join(team_wins_df2, on = "team_abbreviation")
-
-correlation <- substr(as.character(cor(intenational_winning_df$total_win_percentage, intenational_winning_df$international_percent)), start = 0, stop = 6)
-
-intenational_winning_df %>% 
-  ggplot(aes(x = international_percent, y = total_win_percentage)) + 
-  geom_point() + 
-  geom_smooth(se = FALSE) + 
-  annotate(geom = "text", label = paste("correlation = ", correlation), color = "blue", x = 23, y = 60, size = 5) + 
-  labs(title = "Effects of Drafting International Players on Winning %",
-       x = "International Players Drafted (%)",
-       y = "Winning Percentage") + 
-  theme_classic()
-```
-
-So If there is NO MEAINGFUL CORRELATION between winning percentage and the college program you draft from and there is only MODERATE
-negative correlation between winning percentage and the percentage of International players you select, what is actually important?
-
-
-
-It seems pretty obvious right? Selecting the right players with your picks.
-
-
-
-As a further interesting note, despite drafting International players having a moderately *negative correlation* with winning percentage,
-we shouldn't just not draft International players. 
-
-* For one, it a only a moderately strong negative correlation.
-* But more importantly, this data contains data on ALL INTERNATIONAL PLAYERS. Why is this of importance? International players
-  as seen below are typically drafted lower than college players. Perhaps due to biases? Lack of exposure to NBA scouts? A multiple of reasons.
-  
-
-Interpretation: International players are selected on average, 4.3 picks lower than college players.
-
-```{r}
-draft_picks %>% 
-  filter(organization_type %in% c("College", "International")) %>% 
-  group_by(organization_type) %>% 
-  summarise(avg_pick_number = mean(overall_pick, na.rm = TRUE))
-```
-
-
-Looking further into the data, if we were to select between a College and International player, who really should we select
-given selecting college players from a big program has a better correlation with winning compared to that of selecting International players?
-
-
-## Are Non-College (i.e. International players) better than College players in terms of avg_net_rating?
-* Compare the two and see if College or Non-College players make the bigger impact?
-* Then see what demographic the knicks are primarily drafting (pie-chart). College or non-college. 
-* If Non-college are making the bigger impact and Knicks are drafting more college than league avg, perhaps this is a recommendation.
-
-As seen, draft Picks usually come from college or played professionally. Therefore, it might be worthwhile comparing the performance
-of players coming from college against those coming from professional ball.
-```{r}
-draft_picks %>% 
-  count(organization_type)
-```
-
-Interpreation: To get an overview of performance of College vs International players,
-clearly the avg_rating for International players is lower than that of College players,
-but the sd is higher.
-
-This indicates that perhaps International players have a greater spread of performance, with it being more risky
-to select International players due to lower average rating but it yielding potentially greater rewards
-with the spread of performance being so high. It seems as if college players are the safer choice, but for more
-reward, you'd select International.
-
-```{r}
-draft_picks %>% 
-  filter(organization_type %in% c("College", "International")) %>% 
-  group_by(organization_type) %>%
-  summarise(sd_rating = sd(career_net_rating, na.rm = TRUE),
-            avg_rating = mean(career_net_rating, na.rm = TRUE))
-```
-
-To analyse the above further, we can look into the *quantiles*:
-
-Interpretation: It can be seen that College the Q1 and Median college drafted played in terms for average net rating will perform
-better than that of the internationally drafted player. However, the Q3 and top 10% of performing draft picks for professional players
-will perform better than that of their college counterpart.  
-Furthermore, it can be seen that as you increase the quantile, the international players start to increase their avg_rating relative to 
-that of college players.
-
-This suggests that drafted international players have much higher potential to be impactful players or even stars in the NBA,
-which holds in line with current NBA trends as the past 4 out of 5 MVP (Most Value Player) awards have been handed to 
-Giannis and Jokic, who both played internationally prior to entering the NBA.
-
-This suggests that international players who make a difference (i.e. are in the top 25% or 10% of 
-professionally drafted players) make a *larger* difference than their college counterparts can be explained by the position 
-in which these players were selected.
-
-However, on the contrary, International players who fail to make a meaningful different seem to perform worse
-than their college counterparts (i.e. players in the bottom 25% or bottom 50% of net rating).
-
-```{r}
-draft_picks %>% 
-  filter(organization_type %in% c("College", "International")) %>% 
-  group_by(organization_type) %>% 
-  summarise_at(vars(career_net_rating),
-              list(Q1=~quantile(., probs = 0.25, na.rm = TRUE),
-                    median=~median(.x, na.rm = TRUE), Q3=~quantile(., probs = 0.75, na.rm = TRUE),
-                   top_decile = ~quantile(., probs = 0.9, na.rm = TRUE)))
-```
-
-
-Interpretation: As seen in the graph, the Knicks are 2nd in terms of International players drafted, with 35.3% of our draft picks being International.
-Furthermore, alot of these picks have been high draft picks, as we've performed poorly in the since 2013 however, why did the Knicks still perform
-poorly if we're selecting a lot of International players highly?
-
-Simply select International players highly, but rather good recruitment is required. 
-
-Take for example Denver, who are the 3rd highest international drafted with 31.6% of draftees coming from International basketball.
-They however, won the 2022/2023 NBA championship with Nikola Jokic, their best player and one of the best players in NBA history
-coming from International.
-
-Therefore, I propose the Knicks really focus in on their drafting process and consider what qualities in International players
-would help them succeed when transitioning into the NBA. 
+1. Invest available salary and draft picks in obtaining ["Three 'n D"](https://www.hoopsbeast.com/what-is-a-3-and-d-player/) players who shoot the three pointer efficiently and play excellent defense. This is a sought-after mold that will add to three ball and defensive efficiency.
+2. Focus equally on defense and offense, whether it be through particular signing players or on training drills. The greatest reward is through stellar play in both aspects.
+3. Don't overspend on veterans in free agency but sign nice complementary pieces to Julius Randle and Jalen Brunson, allowing for flexibility in mid-season trades.
