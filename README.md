@@ -1,8 +1,8 @@
-# NYK_Failures
+# NYK Failures
 
 <h1 align="center">
   <br>
-  <img src="https://github.com/danielliu2707/personal-website/blob/main/urara/assets/knicks.png" width="160">
+  <img src="https://github.com/danielliu2707/personal-website/blob/main/urara/assets/knicks.png" width="300">
 </h1>
 
 NYK_Failures is a passion project that uncovers and addresses my favourite NBA team, the New York Knicks' decade-long struggles while providing actionable solutions for the future. 🏀
